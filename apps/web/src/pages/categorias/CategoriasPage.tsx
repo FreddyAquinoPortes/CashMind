@@ -8,7 +8,7 @@ import {
   ChevronDownIcon,
 } from '@heroicons/react/24/outline'
 import { Icon } from '@iconify/react'
-import { IconPicker } from '../../components/ui/IconPicker'
+import { IconPicker, suggestIcon } from '../../components/ui/IconPicker'
 
 // ── API helpers ────────────────────────────────────────────────────────────
 const fetchCategorias = async (): Promise<Categoria[]> => {
@@ -97,6 +97,15 @@ function CategoriaForm({
     icono: initial?.icono ?? '',
     esEsencial: initial?.esEsencial ?? false,
   })
+  // true = icon was auto-suggested (not manually chosen by user)
+  const [autoSuggested, setAutoSuggested] = useState(!initial?.icono)
+
+  // Auto-suggest icon as user types the name
+  useEffect(() => {
+    if (!autoSuggested) return          // user manually chose — don't override
+    const suggested = suggestIcon(form.nombre)
+    if (suggested) setForm(p => ({ ...p, icono: suggested }))
+  }, [form.nombre, autoSuggested])
 
   return (
     <form
@@ -115,12 +124,26 @@ function CategoriaForm({
           value={form.nombre}
           onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
           className="input"
-          placeholder="Ej. Alimentación"
+          placeholder="Ej. Supermercado, Combustible, Salud…"
+          autoFocus
         />
       </label>
       <div className="flex flex-col gap-1 text-sm text-text-secondary">
-        Ícono
-        <IconPicker value={form.icono} onChange={icono => setForm(p => ({ ...p, icono }))} />
+        <div className="flex items-center gap-2">
+          <span>Ícono</span>
+          {autoSuggested && form.icono && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/20 text-primary font-medium">
+              ✨ Sugerido
+            </span>
+          )}
+        </div>
+        <IconPicker
+          value={form.icono}
+          onChange={icono => {
+            setForm(p => ({ ...p, icono }))
+            setAutoSuggested(false)   // user manually picked
+          }}
+        />
       </div>
       <div className="flex flex-col gap-1 text-sm text-text-secondary">
         Color
@@ -166,6 +189,13 @@ function SubcategoriaForm({
     color: initial?.color ?? '#4ade80',
     icono: initial?.icono ?? '',
   })
+  const [autoSuggested, setAutoSuggested] = useState(!initial?.icono)
+
+  useEffect(() => {
+    if (!autoSuggested) return
+    const suggested = suggestIcon(form.nombre)
+    if (suggested) setForm(p => ({ ...p, icono: suggested }))
+  }, [form.nombre, autoSuggested])
 
   return (
     <form
@@ -184,12 +214,26 @@ function SubcategoriaForm({
           value={form.nombre}
           onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
           className="input"
-          placeholder="Ej. Restaurantes"
+          placeholder="Ej. Restaurantes, Gasolina, Gym…"
+          autoFocus
         />
       </label>
       <div className="flex flex-col gap-1 text-sm text-text-secondary">
-        Ícono
-        <IconPicker value={form.icono} onChange={icono => setForm(p => ({ ...p, icono }))} />
+        <div className="flex items-center gap-2">
+          <span>Ícono</span>
+          {autoSuggested && form.icono && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/20 text-primary font-medium">
+              ✨ Sugerido
+            </span>
+          )}
+        </div>
+        <IconPicker
+          value={form.icono}
+          onChange={icono => {
+            setForm(p => ({ ...p, icono }))
+            setAutoSuggested(false)
+          }}
+        />
       </div>
       <div className="flex flex-col gap-1 text-sm text-text-secondary">
         Color

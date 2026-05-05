@@ -1,6 +1,87 @@
 import { useState, useMemo } from 'react'
 import { Icon } from '@iconify/react'
 
+// ── Auto-suggest: maps category name words to the best icon ──────────────
+// Priority map: keyword → exact tabler icon (first match wins)
+const SUGGEST_MAP: Array<[string[], string]> = [
+  // Compras
+  [['compra','supermercado','mercado','bravo','nacional','jumbo','plaza'], 'tabler:shopping-cart'],
+  [['online','amazon','ebay','shopify','ecommerce','tienda online'], 'tabler:shopping-bag'],
+  [['farmacia','medicamento','drogueria','carol'], 'tabler:pill'],
+  [['ropa','moda','calzado','zapato','vestimenta','boutique'], 'tabler:shirt'],
+  // Alimentación
+  [['restaurante','comida','almuerzo','cena','desayuno','buffet'], 'tabler:tools-kitchen-2'],
+  [['cafe','cafeteria','starbucks','coffee'], 'tabler:coffee'],
+  [['pizza','burger','hamburguesa','mcdonalds','kfc','subway'], 'tabler:burger'],
+  [['bar','cerveza','beer','licor','alcohol'], 'tabler:beer'],
+  [['colmado','verdura','fruta','mercadito'], 'tabler:apple'],
+  // Transporte
+  [['gasolina','combustible','shell','texaco','gasolinera','fuel'], 'tabler:gas-station'],
+  [['uber','taxi','didi','cabify','ride'], 'tabler:car'],
+  [['carro','auto','vehiculo','nissan','toyota','honda','hyundai'], 'tabler:car-suv'],
+  [['avion','vuelo','aeropuerto','viaje','turismo','vacacion'], 'tabler:plane'],
+  [['bus','metro','tren','transporte publico'], 'tabler:bus'],
+  [['bicicleta','bike','cycling'], 'tabler:bicycle'],
+  [['moto','motocicleta'], 'tabler:motorbike'],
+  // Hogar
+  [['alquiler','renta','hipoteca','apartamento','casa','habitacion'], 'tabler:home'],
+  [['electricidad','luz','edeeste','edenorte','edeste','edenorte','corriente'], 'tabler:bolt'],
+  [['agua','acueducto','caasd'], 'tabler:droplet'],
+  [['internet','wifi','claro','altice','wind','fiber'], 'tabler:wifi'],
+  [['telefono','celular','movil','plan','linea'], 'tabler:device-mobile'],
+  [['limpieza','aseo','lavanderia','lavado'], 'tabler:washing-machine'],
+  [['reparacion','mantenimiento','plomero','electricista','arreglo'], 'tabler:tool'],
+  // Salud
+  [['medico','doctor','clinica','hospital','consulta','cita'], 'tabler:stethoscope'],
+  [['salud','seguro medico','seguro','poliza'], 'tabler:heart'],
+  [['gym','gimnasio','ejercicio','deporte','fitness'], 'tabler:dumbbell'],
+  [['dentista','dental','odontologia'], 'tabler:dental'],
+  [['oculista','optica','vision','lentes'], 'tabler:eye'],
+  // Finanzas
+  [['ahorro','ahorros','fondo'], 'tabler:piggy-bank'],
+  [['inversion','bolsa','acciones','dividendo','rendimiento'], 'tabler:trending-up'],
+  [['prestamo','deuda','credito','banco union','banreservas','bpd','blh'], 'tabler:credit-card'],
+  [['impuesto','dgii','tax','itbis','declaracion'], 'tabler:receipt'],
+  [['nomina','salario','sueldo','ingreso','pago'], 'tabler:moneybag'],
+  [['tarjeta','mastercard','visa','amex'], 'tabler:credit-card'],
+  [['transferencia','pago','envio'], 'tabler:transfer'],
+  // Educación
+  [['escuela','colegio','universidad','educacion','curs','materia','beca'], 'tabler:school'],
+  [['libro','libreria','papeleria','utiles'], 'tabler:book'],
+  // Entretenimiento
+  [['netflix','disney','hbo','streaming','pelicula','cine'], 'tabler:movie'],
+  [['spotify','musica','concierto','apple music'], 'tabler:music'],
+  [['juego','game','playstation','xbox','nintendo','steam'], 'tabler:device-gamepad'],
+  [['deporte','futbol','basketball','beisbol','tenis'], 'tabler:run'],
+  // Trabajo
+  [['trabajo','oficina','empresa','negocio','freelance','proyecto'], 'tabler:briefcase'],
+  [['computadora','laptop','software','hardware','tecnologia'], 'tabler:device-laptop'],
+  // Social & familia
+  [['familia','hijo','esposa','esposo','pareja'], 'tabler:users'],
+  [['mascota','perro','gato','veterinario'], 'tabler:paw'],
+  [['regalo','cumpleanos','celebracion','fiesta'], 'tabler:gift'],
+  [['viaje','vacaciones','hotel','turismo'], 'tabler:beach'],
+  // Generales
+  [['personal','propio','yo'], 'tabler:user'],
+  [['otros','varios','miscelaneo','general'], 'tabler:dots'],
+]
+
+// Normalize text: lowercase, remove accents
+function normalize(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
+// Returns the best icon suggestion for a given category name, or '' if none
+export function suggestIcon(name: string): string {
+  const n = normalize(name)
+  for (const [keywords, icon] of SUGGEST_MAP) {
+    if (keywords.some(k => n.includes(normalize(k)))) {
+      return icon
+    }
+  }
+  return ''
+}
+
 // ── Bilingual keyword map ─────────────────────────────────────────────────
 // Maps Spanish words and common terms to icon name fragments
 const ES_EN: Record<string, string[]> = {
