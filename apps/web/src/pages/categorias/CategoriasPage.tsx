@@ -6,8 +6,9 @@ import {
   PlusIcon,
   ChevronRightIcon,
   ChevronDownIcon,
-  TagIcon,
 } from '@heroicons/react/24/outline'
+import { Icon } from '@iconify/react'
+import { IconPicker } from '../../components/ui/IconPicker'
 
 // ── API helpers ────────────────────────────────────────────────────────────
 const fetchCategorias = async (): Promise<Categoria[]> => {
@@ -117,16 +118,10 @@ function CategoriaForm({
           placeholder="Ej. Alimentación"
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-text-secondary">
-        Ícono (emoji)
-        <input
-          value={form.icono}
-          onChange={e => setForm(p => ({ ...p, icono: e.target.value }))}
-          className="input"
-          placeholder="🍔"
-          maxLength={4}
-        />
-      </label>
+      <div className="flex flex-col gap-1 text-sm text-text-secondary">
+        Ícono
+        <IconPicker value={form.icono} onChange={icono => setForm(p => ({ ...p, icono }))} />
+      </div>
       <div className="flex flex-col gap-1 text-sm text-text-secondary">
         Color
         <ColorPicker value={form.color} onChange={c => setForm(p => ({ ...p, color: c }))} />
@@ -192,16 +187,10 @@ function SubcategoriaForm({
           placeholder="Ej. Restaurantes"
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-text-secondary">
-        Ícono (emoji)
-        <input
-          value={form.icono}
-          onChange={e => setForm(p => ({ ...p, icono: e.target.value }))}
-          className="input"
-          placeholder="🍽️"
-          maxLength={4}
-        />
-      </label>
+      <div className="flex flex-col gap-1 text-sm text-text-secondary">
+        Ícono
+        <IconPicker value={form.icono} onChange={icono => setForm(p => ({ ...p, icono }))} />
+      </div>
       <div className="flex flex-col gap-1 text-sm text-text-secondary">
         Color
         <ColorPicker value={form.color} onChange={c => setForm(p => ({ ...p, color: c }))} />
@@ -302,7 +291,13 @@ function SubcategoriaRow({
     <div className="flex items-center gap-3 py-2 pl-10 pr-3 rounded-lg hover:bg-background/50 transition-colors">
       <span className="text-sm text-text-muted select-none">•</span>
       <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: sub.color ?? '#94a3b8' }} />
-      <span className="text-sm text-text-secondary flex-1">{sub.icono ? `${sub.icono} ` : ''}{sub.nombre}</span>
+      <span className="text-sm text-text-secondary flex-1 flex items-center gap-1.5">
+        {sub.icono?.startsWith('tabler:')
+          ? <Icon icon={sub.icono} className="w-4 h-4" style={{ color: sub.color ?? '#94a3b8' }} />
+          : sub.icono || '•'
+        }
+        {sub.nombre}
+      </span>
       {actions.length > 0 && (
         <DropdownMenu
           menuId={menuId}
@@ -368,7 +363,12 @@ function CategoriaRow({
           className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-base"
           style={{ backgroundColor: (cat.color ?? '#1e8e5a') + '33' }}
         >
-          {cat.icono || <TagIcon className="w-4 h-4" style={{ color: cat.color ?? '#22c55e' }} />}
+          {cat.icono?.startsWith('tabler:')
+            ? <Icon icon={cat.icono} className="w-5 h-5" style={{ color: cat.color ?? '#22c55e' }} />
+            : cat.icono
+              ? <span className="text-base">{cat.icono}</span>
+              : <Icon icon="tabler:tag" className="w-5 h-5" style={{ color: cat.color ?? '#22c55e' }} />
+          }
         </div>
 
         <div className="flex-1 min-w-0">
