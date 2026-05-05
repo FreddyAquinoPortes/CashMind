@@ -291,13 +291,13 @@ function DropdownMenu({ menuId, openMenu, setOpenMenu, actions }: DropdownMenuPr
         ···
       </button>
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 z-30 min-w-[180px] bg-surface border border-border rounded-xl shadow-2xl py-1 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 z-30 min-w-[200px] bg-surface border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden">
           {actions.map((action, i) => (
             <button
               key={i}
               type="button"
               onClick={e => { e.stopPropagation(); action.onClick(); setOpenMenu(null) }}
-              className={`w-full text-left px-4 py-2 text-sm transition-colors
+              className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center gap-2.5
                 ${action.danger
                   ? 'text-danger hover:bg-danger/10'
                   : 'text-text-secondary hover:bg-surface-elevated hover:text-text-primary'}`}
@@ -329,11 +329,10 @@ function SubcategoriaRow({
   onEdit: (s: Subcategoria) => void
   onDelete: (s: Subcategoria) => void
 }) {
-  const actions: MenuAction[] = []
-  if (!isSystem) {
-    actions.push({ label: '✏ Editar', onClick: () => onEdit(sub) })
-    actions.push({ label: '🗑 Eliminar', onClick: () => onDelete(sub), danger: true })
-  }
+  const actions: MenuAction[] = [
+    { label: '✏ Editar subcategoría',    onClick: () => onEdit(sub) },
+    { label: '🗑 Eliminar subcategoría', onClick: () => onDelete(sub), danger: true },
+  ]
 
   return (
     <div className="flex items-center gap-3 py-2 pl-10 pr-3 rounded-lg hover:bg-background/50 transition-colors">
@@ -346,14 +345,12 @@ function SubcategoriaRow({
         }
         {sub.nombre}
       </span>
-      {actions.length > 0 && (
-        <DropdownMenu
-          menuId={menuId}
-          openMenu={openMenu}
-          setOpenMenu={setOpenMenu}
-          actions={actions}
-        />
-      )}
+      <DropdownMenu
+        menuId={menuId}
+        openMenu={openMenu}
+        setOpenMenu={setOpenMenu}
+        actions={actions}
+      />
     </div>
   )
 }
@@ -387,10 +384,8 @@ function CategoriaRow({
 
   const catMenuActions: MenuAction[] = [
     { label: '+ Añadir subcategoría', onClick: () => onAddSub(cat) },
-    ...(!isSystem ? [
-      { label: '✏ Editar', onClick: () => onEdit(cat) },
-      { label: '🗑 Eliminar', onClick: () => onDelete(cat), danger: true as const },
-    ] : []),
+    { label: '✏ Editar categoría',    onClick: () => onEdit(cat) },
+    { label: '🗑 Eliminar categoría', onClick: () => onDelete(cat), danger: true as const },
   ]
 
   return (
