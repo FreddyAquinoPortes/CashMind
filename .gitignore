@@ -1,0 +1,16 @@
+﻿node_modules/
+dist/
+build/
+.env
+.env.local
+.env.production
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+out/
+release/
+coverage/
+.nyc_output/
+.vscode/settings.json
+.idea/

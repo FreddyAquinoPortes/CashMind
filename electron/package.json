@@ -1,0 +1,32 @@
+﻿{
+  "name": "@cashmind/electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "concurrently \"tsc --watch\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "tsc",
+    "package": "electron-builder"
+  },
+  "dependencies": { "electron-updater": "^6.1.0" },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "concurrently": "^8.2.0",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.0",
+    "typescript": "^5.4.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.cashmind.app",
+    "productName": "CashMind",
+    "directories": { "output": "release" },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

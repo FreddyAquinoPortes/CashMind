@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   CashMind Design Tokens — Tema Oscuro (default)
+   Inspirado en Excel / Google Sheets — verde corporativo
+   ============================================================ */
+:root,
+.dark {
+  --background:        156 40% 8%;     /* #0F1A14 */
+  --surface:           156 30% 12%;    /* #162821 */
+  --surface-elevated:  156 28% 16%;    /* #1E3329 */
+  --border:            156 25% 23%;    /* #2A4A3C */
+  --border-strong:     156 25% 31%;    /* #3A6650 */
+
+  --primary:           152 64% 34%;    /* #1E8E5A */
+  --primary-hover:     152 62% 40%;    /* #25A86B */
+  --primary-active:    152 64% 29%;    /* #1A7A4D */
+  --primary-foreground:0 0% 100%;
+
+  --success:           142 71% 48%;    /* #34C759 */
+  --warning:           38 91% 55%;     /* #F5A524 */
+  --danger:            358 73% 59%;    /* #E5484D */
+  --info:              213 100% 65%;   /* #4A9EFF */
+
+  --text-primary:      150 20% 93%;    /* #E8F0EB */
+  --text-secondary:    150 14% 70%;    /* #A8BBB1 */
+  --text-muted:        150 10% 46%;    /* #6B8076 */
+}
+
+/* Tema Claro */
+.light {
+  --background:        0 0% 100%;
+  --surface:           130 14% 97%;
+  --surface-elevated:  130 12% 94%;
+  --border:            130 10% 88%;
+  --border-strong:     130 10% 78%;
+
+  --primary:           148 82% 29%;    /* #0F8B4A */
+  --primary-hover:     148 80% 35%;
+  --primary-active:    148 82% 24%;
+  --primary-foreground:0 0% 100%;
+
+  --success:           142 71% 38%;
+  --warning:           38 91% 45%;
+  --danger:            358 73% 49%;
+  --info:              213 100% 55%;
+
+  --text-primary:      156 40% 8%;
+  --text-secondary:    156 15% 35%;
+  --text-muted:        156 10% 55%;
+}
+
+/* ============================================================
+   Base styles
+   ============================================================ */
+* { box-sizing: border-box; }
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--text-primary));
+  font-family: 'Inter', 'Manrope', system-ui, sans-serif;
+}
+
+/* Tabular numbers for monetary values */
+.tabular { font-variant-numeric: tabular-nums; font-family: 'JetBrains Mono', monospace; }
+
+/* Zebra striping for tables */
+.table-zebra tbody tr:nth-child(even) {
+  background-color: hsl(var(--surface));
+}
+.table-zebra tbody tr:hover {
+  background-color: hsl(var(--surface-elevated));
+}
+
+/* Amount colors */
+.amount-positive { color: hsl(var(--success)); }
+.amount-negative { color: hsl(var(--danger)); }
+
+/* Scrollbar styles */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: hsl(var(--background)); }
+::-webkit-scrollbar-thumb { background: hsl(var(--border-strong)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--primary)); }

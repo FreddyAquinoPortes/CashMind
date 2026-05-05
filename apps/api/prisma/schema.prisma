@@ -1,0 +1,482 @@
+// CashMind - Prisma Schema
+// PostgreSQL 15+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =================== ENUMS ===================
+enum Rol {
+  ADMIN
+  CLIENTE
+}
+
+enum TipoCuenta {
+  CORRIENTE
+  AHORRO
+  INVERSION
+  OTRO
+}
+
+enum EstadoCiclo {
+  VIGENTE
+  PAGADO_MIN
+  PAGADO_TOTAL
+  EN_MORA
+}
+
+enum Frecuencia {
+  UNICA
+  DIARIA
+  SEMANAL
+  QUINCENAL
+  MENSUAL
+  BIMESTRAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+}
+
+enum EstadoTransaccion {
+  PENDIENTE
+  EJECUTADO
+  CANCELADO
+  PROYECTADO
+  PROGRAMADO
+}
+
+enum TipoTransaccion {
+  GASTO
+  INGRESO
+  TRANSFERENCIA
+  PAGO_DEUDA
+  AJUSTE
+}
+
+enum TipoDeuda {
+  BANCARIA
+  TARJETA
+  PERSONAL
+  COMERCIAL
+  OTRA
+}
+
+enum TipoPlazo {
+  FIJO
+  FLEXIBLE
+}
+
+enum EstadoDeuda {
+  ACTIVA
+  SALDADA
+  EN_MORA
+  RENEGOCIADA
+  CANCELADA
+}
+
+enum EstadoEvento {
+  PLANIFICADO
+  APARTADO
+  EJECUTADO
+  CANCELADO
+}
+
+enum EstadoPlan {
+  BORRADOR
+  ACTIVO
+  CERRADO
+  ARCHIVADO
+}
+
+// =================== USUARIOS Y CLIENTES ===================
+model Usuario {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String
+  nombre           String
+  rol              Rol       @default(CLIENTE)
+  ultimoLogin      DateTime?
+  intentosFallidos Int       @default(0)
+  bloqueadoHasta   DateTime?
+  clientes         Cliente[]
+  apiKeys          ApiKey[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model Cliente {
+  id                   String                @id @default(cuid())
+  usuarioId            String
+  usuario              Usuario               @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  nombre               String
+  monedaBase           String                @default("DOP")
+  diaCorteCiclo        Int?
+  configuracion        Json?
+  cuentas              CuentaBancaria[]
+  tarjetas             TarjetaCredito[]
+  deudas               Deuda[]
+  transacciones        Transaccion[]
+  presupuestos         Presupuesto[]
+  planes               PlanFinanciero[]
+  personas             Persona[]
+  eventos              Evento[]
+  vehiculos            Vehiculo[]
+  rutas                Ruta[]
+  reglasCategorizacion ReglaCategorizacion[]
+  notificaciones       Notificacion[]
+  webhooks             Webhook[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+}
+
+// =================== CUENTAS Y TARJETAS ===================
+model CuentaBancaria {
+  id            String         @id @default(cuid())
+  clienteId     String
+  cliente       Cliente        @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  banco         String
+  numero        String
+  alias         String?
+  tipo          TipoCuenta
+  moneda        String         @default("DOP")
+  saldo         Decimal        @default(0) @db.Decimal(15, 2)
+  activa        Boolean        @default(true)
+  transacciones Transaccion[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([clienteId])
+}
+
+model TarjetaCredito {
+  id                 String         @id @default(cuid())
+  clienteId          String
+  cliente            Cliente        @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  banco              String
+  alias              String?
+  ultimosCuatro      String
+  limite             Decimal        @db.Decimal(15, 2)
+  saldoActual        Decimal        @default(0) @db.Decimal(15, 2)
+  tasaInteres        Decimal        @default(0) @db.Decimal(5, 2)
+  tasaMora           Decimal        @default(0) @db.Decimal(5, 2)
+  diaCorte           Int
+  diaPago            Int
+  penalidadSobregiro Decimal        @default(0) @db.Decimal(15, 2)
+  moneda             String         @default("DOP")
+  activa             Boolean        @default(true)
+  transacciones      Transaccion[]
+  ciclos             CicloTarjeta[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([clienteId])
+}
+
+model CicloTarjeta {
+  id          String         @id @default(cuid())
+  tarjetaId   String
+  tarjeta     TarjetaCredito @relation(fields: [tarjetaId], references: [id], onDelete: Cascade)
+  fechaCorte  DateTime
+  fechaPago   DateTime
+  saldoCorte  Decimal        @db.Decimal(15, 2)
+  sobregiro   Decimal        @default(0) @db.Decimal(15, 2)
+  penalidades Decimal        @default(0) @db.Decimal(15, 2)
+  pagoMinimo  Decimal        @db.Decimal(15, 2)
+  pagoTotal   Decimal        @db.Decimal(15, 2)
+  pagado      Decimal        @default(0) @db.Decimal(15, 2)
+  estado      EstadoCiclo    @default(VIGENTE)
+}
+
+// =================== CATEGORIAS ===================
+model Categoria {
+  id            String         @id @default(cuid())
+  clienteId     String?
+  nombre        String
+  peso          Int            @default(5)
+  color         String?
+  icono         String?
+  esEsencial    Boolean        @default(false)
+  orden         Int            @default(0)
+  subcategorias Subcategoria[]
+}
+
+model Subcategoria {
+  id            String                  @id @default(cuid())
+  categoriaId   String
+  categoria     Categoria               @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+  nombre        String
+  peso          Int                     @default(5)
+  color         String?
+  icono         String?
+  transacciones Transaccion[]
+  asignaciones  AsignacionPresupuesto[]
+}
+
+// =================== PERSONAS ===================
+model Persona {
+  id                   String        @id @default(cuid())
+  clienteId            String
+  cliente              Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nombre               String
+  relacion             String?
+  telefono             String?
+  email                String?
+  notas                String?
+  transaccionesPagadas Transaccion[] @relation("PagadoPor")
+  deudas               Deuda[]
+  eventos              Evento[]
+}
+
+// =================== TRANSACCIONES ===================
+model Transaccion {
+  id               String            @id @default(cuid())
+  clienteId        String
+  cliente          Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  concepto         String
+  monto            Decimal           @db.Decimal(15, 2)
+  moneda           String            @default("DOP")
+  detalle          String?
+  comercio         String?
+  tipo             TipoTransaccion
+  categoriaId      String
+  subcategoriaId   String
+  subcategoria     Subcategoria      @relation(fields: [subcategoriaId], references: [id])
+  cuentaId         String?
+  tarjetaId        String?
+  cuenta           CuentaBancaria?   @relation(fields: [cuentaId], references: [id])
+  tarjeta          TarjetaCredito?   @relation(fields: [tarjetaId], references: [id])
+  fecha            DateTime
+  frecuencia       Frecuencia
+  valorRecurrente  Decimal?          @db.Decimal(15, 2)
+  diaRecurrencia   Int?
+  estado           EstadoTransaccion
+  notas            String?
+  eventoId         String?
+  evento           Evento?           @relation(fields: [eventoId], references: [id])
+  pagadoPorId      String?
+  pagadoPor        Persona?          @relation("PagadoPor", fields: [pagadoPorId], references: [id])
+  porcentajePropio Decimal           @default(100) @db.Decimal(5, 2)
+  tags             String[]
+  hashImportacion  String?           @unique
+  referenciaExterna String?
+  archivosAdjuntos Adjunto[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([clienteId, fecha])
+  @@index([estado])
+  @@index([categoriaId])
+  @@index([cuentaId, fecha])
+}
+
+// =================== DEUDAS ===================
+model Deuda {
+  id            String            @id @default(cuid())
+  clienteId     String
+  cliente       Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  acreedorTexto String?
+  personaId     String?
+  persona       Persona?          @relation(fields: [personaId], references: [id])
+  tipo          TipoDeuda
+  montoOriginal Decimal           @db.Decimal(15, 2)
+  saldoActual   Decimal           @db.Decimal(15, 2)
+  moneda        String            @default("DOP")
+  fechaInicio   DateTime
+  fechaFin      DateTime?
+  tasaInteres   Decimal?          @db.Decimal(5, 2)
+  tipoPlazo     TipoPlazo
+  numeroCuotas  Int?
+  diaCobro      Int?
+  estado        EstadoDeuda       @default(ACTIVA)
+  notas         String?
+  pagos         PagoDeuda[]
+  createdAt     DateTime          @default(now())
+
+  @@index([clienteId])
+}
+
+model PagoDeuda {
+  id            String            @id @default(cuid())
+  deudaId       String
+  deuda         Deuda             @relation(fields: [deudaId], references: [id], onDelete: Cascade)
+  monto         Decimal           @db.Decimal(15, 2)
+  fecha         DateTime
+  estado        EstadoTransaccion
+  notas         String?
+  transaccionId String?           @unique
+}
+
+// =================== EVENTOS ===================
+model Evento {
+  id                  String       @id @default(cuid())
+  clienteId           String
+  cliente             Cliente      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nombre              String
+  fecha               DateTime
+  recurrente          Boolean      @default(false)
+  tipoRecurrencia     String?
+  presupuestoEstimado Decimal      @db.Decimal(15, 2)
+  rangoMin            Decimal?     @db.Decimal(15, 2)
+  rangoMax            Decimal?     @db.Decimal(15, 2)
+  prioridad           Int          @default(3)
+  estado              EstadoEvento @default(PLANIFICADO)
+  personaId           String?
+  persona             Persona?     @relation(fields: [personaId], references: [id])
+  notas               String?
+  transacciones       Transaccion[]
+}
+
+// =================== VEHICULOS ===================
+model Vehiculo {
+  id            String    @id @default(cuid())
+  clienteId     String
+  cliente       Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  marca         String
+  modelo        String
+  ano           Int
+  mpgRealWorld  Decimal   @db.Decimal(5, 2)
+  margenConsumo Decimal   @default(15) @db.Decimal(5, 2)
+  fuenteMpg     String?
+  rutas         Ruta[]
+  activo        Boolean   @default(true)
+}
+
+model Ruta {
+  id               String    @id @default(cuid())
+  clienteId        String
+  cliente          Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  vehiculoId       String?
+  vehiculo         Vehiculo? @relation(fields: [vehiculoId], references: [id])
+  nombre           String
+  distanciaKm      Decimal   @db.Decimal(8, 2)
+  vecesPorSemana   Int
+  porcentajePropio Decimal   @default(100) @db.Decimal(5, 2)
+  activa           Boolean   @default(true)
+}
+
+model PrecioCombustible {
+  id     String   @id @default(cuid())
+  tipo   String
+  precio Decimal  @db.Decimal(8, 2)
+  moneda String   @default("DOP")
+  unidad String   @default("galon")
+  fecha  DateTime
+  fuente String?
+
+  @@index([fecha, tipo])
+}
+
+// =================== PRESUPUESTOS Y PLANES ===================
+model Presupuesto {
+  id            String                  @id @default(cuid())
+  clienteId     String
+  cliente       Cliente                 @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nombre        String
+  fechaInicio   DateTime
+  fechaFin      DateTime
+  asignaciones  AsignacionPresupuesto[]
+  createdAt     DateTime                @default(now())
+}
+
+model AsignacionPresupuesto {
+  id             String       @id @default(cuid())
+  presupuestoId  String
+  presupuesto    Presupuesto  @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
+  subcategoriaId String
+  subcategoria   Subcategoria @relation(fields: [subcategoriaId], references: [id])
+  montoAsignado  Decimal      @db.Decimal(15, 2)
+}
+
+model PlanFinanciero {
+  id              String     @id @default(cuid())
+  clienteId       String
+  cliente         Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nombre          String
+  version         String     @default("v1")
+  fechaInicio     DateTime
+  fechaFin        DateTime
+  proyeccionJson  Json
+  estado          EstadoPlan
+  scoreAdherencia Decimal?   @db.Decimal(5, 2)
+  createdAt       DateTime   @default(now())
+  cerradoEn       DateTime?
+}
+
+// =================== AUXILIARES ===================
+model TipoCambio {
+  id            String   @id @default(cuid())
+  monedaBase    String
+  monedaDestino String
+  tasa          Decimal  @db.Decimal(15, 6)
+  fecha         DateTime
+  fuente        String?
+
+  @@unique([monedaBase, monedaDestino, fecha])
+}
+
+model ReglaCategorizacion {
+  id             String  @id @default(cuid())
+  clienteId      String
+  cliente        Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  patron         String
+  esRegex        Boolean @default(false)
+  categoriaId    String
+  subcategoriaId String
+  prioridad      Int     @default(0)
+  activa         Boolean @default(true)
+}
+
+model Adjunto {
+  id            String       @id @default(cuid())
+  transaccionId String?
+  transaccion   Transaccion? @relation(fields: [transaccionId], references: [id])
+  nombreArchivo String
+  rutaArchivo   String
+  mimeType      String
+  tamanoBytes   Int
+  hash          String
+  createdAt     DateTime     @default(now())
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  usuarioId String
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  nombre    String
+  keyHash   String    @unique
+  scopes    String[]
+  ultimoUso DateTime?
+  expiraEn  DateTime?
+  revocada  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+}
+
+model Notificacion {
+  id        String   @id @default(cuid())
+  clienteId String
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  tipo      String
+  titulo    String
+  mensaje   String
+  leida     Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([clienteId, leida])
+}
+
+model Webhook {
+  id        String   @id @default(cuid())
+  clienteId String
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  url       String
+  eventos   String[]
+  secret    String
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
