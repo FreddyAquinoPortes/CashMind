@@ -5,6 +5,12 @@ import compression from 'compression'
 import rateLimit from 'express-rate-limit'
 import { authRouter } from './modules/auth/auth.router'
 import { clientesRouter } from './modules/clientes/clientes.router'
+import { cuentasRouter } from './modules/cuentas/cuentas.router'
+import { tarjetasRouter } from './modules/tarjetas/tarjetas.router'
+import { deudasRouter } from './modules/deudas/deudas.router'
+import { transaccionesRouter } from './modules/transacciones/transacciones.router'
+import categoriasRouter from './modules/categorias/categorias.router'
+import { personasRouter } from './modules/personas/personas.router'
 import { errorHandler } from './middleware/error.middleware'
 import { requestLogger } from './middleware/logger.middleware'
 
@@ -26,6 +32,12 @@ export function createApp() {
 
   app.use('/api/auth', authRouter)
   app.use('/api/clientes', clientesRouter)
+  app.use('/api/cuentas', cuentasRouter)
+  app.use('/api/tarjetas', tarjetasRouter)
+  app.use('/api/deudas', deudasRouter)
+  app.use('/api/transacciones', transaccionesRouter)
+  app.use('/api/categorias', categoriasRouter)
+  app.use('/api/personas', personasRouter)
 
   app.use(errorHandler)
 

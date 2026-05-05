@@ -5,11 +5,8 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "outDir": "./dist",
-    "rootDir": "./src",
-    "paths": {
-      "@cashmind/shared": ["../../packages/shared/src"]
-    }
+    "rootDir": "./src"
   },
-  "include": ["src/**/*", "prisma/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

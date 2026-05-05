@@ -27,7 +27,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 export async function refresh(req: Request, res: Response, next: NextFunction) {
   try {
     const { refreshToken } = req.body as { refreshToken?: string }
-    if (!refreshToken) return res.status(400).json({ error: 'refreshToken requerido' })
+    if (!refreshToken) { res.status(400).json({ error: 'refreshToken requerido' }); return }
     const result = await service.refresh(refreshToken)
     res.json({ data: result })
   } catch (err) {

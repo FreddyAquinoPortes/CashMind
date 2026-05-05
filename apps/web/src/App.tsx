@@ -3,6 +3,7 @@ import { useAuthStore } from './store/auth.store'
 import { AppLayout } from './components/layout/AppLayout'
 import { LoginPage } from './pages/auth/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
+import { CategoriasPage } from './pages/categorias/CategoriasPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore(s => s.user)
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="proyecciones"  element={<ComingSoon title="Proyecciones" />} />
         <Route path="reportes"      element={<ComingSoon title="Reportes" />} />
         <Route path="importacion"   element={<ComingSoon title="Importación" />} />
+        <Route path="categorias"    element={<CategoriasPage />} />
         <Route path="ajustes"       element={<ComingSoon title="Ajustes" />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

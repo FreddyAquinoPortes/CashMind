@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, ArrowLeftRight, Building2, CreditCard,
   TrendingDown, Users, Calendar, Fuel, PieChart,
-  LineChart, FileBarChart2, Upload, Settings, X, DollarSign
+  LineChart, FileBarChart2, Upload, Settings, X, DollarSign, Tag
 } from 'lucide-react'
 
 const navItems = [
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/cuentas',      icon: Building2,       label: 'Cuentas' },
   { to: '/tarjetas',     icon: CreditCard,      label: 'Tarjetas' },
   { to: '/deudas',       icon: TrendingDown,    label: 'Deudas' },
+  { to: '/categorias',   icon: Tag,             label: 'Categorías' },
   { to: '/personas',     icon: Users,           label: 'Personas' },
   { to: '/eventos',      icon: Calendar,        label: 'Eventos' },
   { to: '/combustible',  icon: Fuel,            label: 'Combustible' },

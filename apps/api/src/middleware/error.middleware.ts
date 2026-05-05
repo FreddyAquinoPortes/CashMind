@@ -9,5 +9,5 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
 
   logger.error({ err }, 'Unhandled error')
   const status = (err as { status?: number }).status ?? 500
-  res.status(status).json({ error: err.message ?? 'Error interno del servidor' })
+  return res.status(status).json({ error: err.message ?? 'Error interno del servidor' })
 }
