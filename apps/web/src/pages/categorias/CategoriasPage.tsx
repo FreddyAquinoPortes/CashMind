@@ -40,13 +40,17 @@ interface ModalProps {
 }
 function Modal({ title, onClose, children }: ModalProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-surface border border-border rounded-xl w-full max-w-md shadow-2xl p-6 mx-4">
-        <div className="flex items-center justify-between mb-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-surface border border-border rounded-xl w-full max-w-md shadow-2xl mx-4 flex flex-col max-h-[90vh]">
+        {/* Header fijo */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 flex-shrink-0">
           <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors text-xl leading-none">&times;</button>
         </div>
-        {children}
+        {/* Contenido con scroll */}
+        <div className="overflow-y-auto flex-1 px-6 pb-6">
+          {children}
+        </div>
       </div>
     </div>
   )
