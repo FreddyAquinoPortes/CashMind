@@ -7,13 +7,14 @@ interface ListarQuery {
   hasta?: string
   tipo?: string
   categoriaId?: string
+  search?: string
   limit?: number
   offset?: number
 }
 
 export class TransaccionesService {
   async listar(clienteId: string, query: ListarQuery = {}) {
-    const { cuentaId, desde, hasta, tipo, categoriaId, limit = 50, offset = 0 } = query
+    const { cuentaId, desde, hasta, tipo, categoriaId, search, limit = 50, offset = 0 } = query
     const where: Prisma.TransaccionWhereInput = { clienteId }
     if (cuentaId) where.cuentaId = cuentaId
     if (tipo) where.tipo = tipo as any
@@ -23,10 +24,17 @@ export class TransaccionesService {
       if (desde) where.fecha.gte = new Date(desde)
       if (hasta) where.fecha.lte = new Date(hasta)
     }
+    if (search) {
+      where.concepto = { contains: search, mode: 'insensitive' }
+    }
     const [total, items] = await Promise.all([
       prisma.transaccion.count({ where }),
       prisma.transaccion.findMany({
         where,
+        include: {
+          subcategoria: { select: { id: true, nombre: true, color: true } },
+          cuenta: { select: { id: true, alias: true, banco: true } },
+        },
         orderBy: { fecha: 'desc' },
         take: Number(limit),
         skip: Number(offset),

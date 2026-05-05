@@ -4,6 +4,7 @@ import { AppLayout } from './components/layout/AppLayout'
 import { LoginPage } from './pages/auth/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { CategoriasPage } from './pages/categorias/CategoriasPage'
+import { TransaccionesPage } from './pages/transacciones/TransaccionesPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore(s => s.user)
@@ -26,7 +27,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<RequireAuth><AppLayout /></RequireAuth>}>
         <Route index element={<DashboardPage />} />
-        <Route path="transacciones" element={<ComingSoon title="Transacciones" />} />
+        <Route path="transacciones" element={<TransaccionesPage />} />
         <Route path="cuentas"       element={<ComingSoon title="Cuentas" />} />
         <Route path="tarjetas"      element={<ComingSoon title="Tarjetas" />} />
         <Route path="deudas"        element={<ComingSoon title="Deudas" />} />
