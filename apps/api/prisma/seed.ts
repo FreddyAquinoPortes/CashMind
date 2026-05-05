@@ -276,6 +276,77 @@ async function main() {
     }).catch(() => {})
   }
 
+  // ---- Transacciones de ejemplo ----
+  const cuenta = await prisma.cuentaBancaria.findUnique({ where: { id: 'cuenta_banreservas' } })
+  if (cuenta) {
+    // Helper to get categoriaId and subcategoriaId from catMap
+    const cat = (catNombre: string, subNombre: string) => ({
+      categoriaId: catMap[catNombre]!.id,
+      subcategoriaId: catMap[catNombre]!.subs[subNombre] ?? Object.values(catMap[catNombre]!.subs)[0]!,
+    })
+
+    const transacciones = [
+      // Mayo 2026
+      { fecha: new Date('2026-05-04'), concepto: 'NOM: PAGO NOMINA EMPRESA XYZ', monto: 45000, tipo: 'INGRESO', ...cat('Ingresos', 'Nómina') },
+      { fecha: new Date('2026-05-03'), concepto: 'SUPERMERCADOS BRAVO BANI', monto: 3850, tipo: 'GASTO', ...cat('Alimentación', 'Supermercado') },
+      { fecha: new Date('2026-05-02'), concepto: 'SHELL GASOLINERA BANI', monto: 2100, tipo: 'GASTO', ...cat('Transporte', 'Combustible') },
+      { fecha: new Date('2026-05-01'), concepto: 'UBER RIDES TRIP', monto: 320, tipo: 'GASTO', ...cat('Transporte', 'Uber/Taxi') },
+      // Abril 2026
+      { fecha: new Date('2026-04-30'), concepto: 'EDEESTE ELECTRICIDAD', monto: 4200, tipo: 'GASTO', ...cat('Servicios básicos', 'Electricidad') },
+      { fecha: new Date('2026-04-28'), concepto: 'CLARO TELEFONIA MOVIL', monto: 1200, tipo: 'GASTO', ...cat('Servicios básicos', 'Telefonía') },
+      { fecha: new Date('2026-04-25'), concepto: 'NOM: PAGO NOMINA EMPRESA XYZ', monto: 45000, tipo: 'INGRESO', ...cat('Ingresos', 'Nómina') },
+      { fecha: new Date('2026-04-22'), concepto: 'SUPERMERCADOS NACIONAL STO DGO', monto: 5600, tipo: 'GASTO', ...cat('Alimentación', 'Supermercado') },
+      { fecha: new Date('2026-04-20'), concepto: 'FARMACIA CAROL BANI', monto: 980, tipo: 'GASTO', ...cat('Salud', 'Farmacia') },
+      { fecha: new Date('2026-04-18'), concepto: 'NETFLIX SUBSCRIPTION', monto: 850, tipo: 'GASTO', ...cat('Tecnología', 'Suscripciones') },
+      { fecha: new Date('2026-04-15'), concepto: 'SHELL GASOLINERA CARRETERA', monto: 2300, tipo: 'GASTO', ...cat('Transporte', 'Combustible') },
+      { fecha: new Date('2026-04-12'), concepto: 'RESTAURANTE LA RESIDENCE BANI', monto: 1850, tipo: 'GASTO', ...cat('Alimentación', 'Comida fuera') },
+      { fecha: new Date('2026-04-10'), concepto: 'SUPERMERCADOS BRAVO BANI', monto: 4200, tipo: 'GASTO', ...cat('Alimentación', 'Supermercado') },
+      { fecha: new Date('2026-04-08'), concepto: 'PAGO BANCO UNION PRESTAMO', monto: 3215, tipo: 'PAGO_DEUDA', ...cat('Deudas', 'Préstamo bancario') },
+      { fecha: new Date('2026-04-05'), concepto: 'UBER RIDES TRIP CAPITAL', monto: 550, tipo: 'GASTO', ...cat('Transporte', 'Uber/Taxi') },
+      { fecha: new Date('2026-04-03'), concepto: 'COLMADO EL BUEN GUSTO', monto: 750, tipo: 'GASTO', ...cat('Alimentación', 'Supermercado') },
+      { fecha: new Date('2026-04-01'), concepto: 'FREELANCE PROYECTO WEB', monto: 15000, tipo: 'INGRESO', ...cat('Ingresos', 'Trabajos extra') },
+      // Marzo 2026
+      { fecha: new Date('2026-03-31'), concepto: 'EDEESTE ELECTRICIDAD MARZO', monto: 3900, tipo: 'GASTO', ...cat('Servicios básicos', 'Electricidad') },
+      { fecha: new Date('2026-03-28'), concepto: 'CLARO INTERNET HOGAR', monto: 1800, tipo: 'GASTO', ...cat('Servicios básicos', 'Internet') },
+      { fecha: new Date('2026-03-25'), concepto: 'NOM: PAGO NOMINA EMPRESA XYZ', monto: 45000, tipo: 'INGRESO', ...cat('Ingresos', 'Nómina') },
+      { fecha: new Date('2026-03-22'), concepto: 'SUPERMERCADOS BRAVO BANI', monto: 6100, tipo: 'GASTO', ...cat('Alimentación', 'Supermercado') },
+      { fecha: new Date('2026-03-20'), concepto: 'SHELL GASOLINERA AUTOPISTA', monto: 2500, tipo: 'GASTO', ...cat('Transporte', 'Combustible') },
+      { fecha: new Date('2026-03-18'), concepto: 'PAGO BANCO UNION PRESTAMO', monto: 3215, tipo: 'PAGO_DEUDA', ...cat('Deudas', 'Préstamo bancario') },
+      { fecha: new Date('2026-03-15'), concepto: 'RESTAURANTE MEDITERRANEO', monto: 2200, tipo: 'GASTO', ...cat('Alimentación', 'Comida fuera') },
+      { fecha: new Date('2026-03-12'), concepto: 'FARMACIA CAROL VITAMINAS', monto: 1200, tipo: 'GASTO', ...cat('Salud', 'Farmacia') },
+      { fecha: new Date('2026-03-10'), concepto: 'UBER RIDES AEROPUERTO', monto: 890, tipo: 'GASTO', ...cat('Transporte', 'Uber/Taxi') },
+      { fecha: new Date('2026-03-08'), concepto: 'SPOTIFY PREMIUM', monto: 450, tipo: 'GASTO', ...cat('Tecnología', 'Suscripciones') },
+      { fecha: new Date('2026-03-05'), concepto: 'AMAZON MARKETPLACE COMPRA', monto: 3200, tipo: 'GASTO', ...cat('Ocio', 'Compras online') },
+      { fecha: new Date('2026-03-03'), concepto: 'COLMADO BUEN PRECIO', monto: 620, tipo: 'GASTO', ...cat('Alimentación', 'Supermercado') },
+      { fecha: new Date('2026-03-01'), concepto: 'BONO PRODUCTIVIDAD', monto: 8000, tipo: 'INGRESO', ...cat('Ingresos', 'Bonos') },
+      // Febrero 2026
+      { fecha: new Date('2026-02-28'), concepto: 'EDEESTE ELECTRICIDAD FEBRERO', monto: 4100, tipo: 'GASTO', ...cat('Servicios básicos', 'Electricidad') },
+      { fecha: new Date('2026-02-25'), concepto: 'NOM: PAGO NOMINA EMPRESA XYZ', monto: 45000, tipo: 'INGRESO', ...cat('Ingresos', 'Nómina') },
+      { fecha: new Date('2026-02-20'), concepto: 'SUPERMERCADOS NACIONAL', monto: 5300, tipo: 'GASTO', ...cat('Alimentación', 'Supermercado') },
+      { fecha: new Date('2026-02-15'), concepto: 'PAGO BANCO UNION PRESTAMO', monto: 3215, tipo: 'PAGO_DEUDA', ...cat('Deudas', 'Préstamo bancario') },
+      { fecha: new Date('2026-02-10'), concepto: 'SHELL GASOLINERA BANI', monto: 2200, tipo: 'GASTO', ...cat('Transporte', 'Combustible') },
+    ]
+
+    for (const tx of transacciones) {
+      await prisma.transaccion.create({
+        data: {
+          clienteId: cliente.id,
+          cuentaId: cuenta.id,
+          fecha: tx.fecha,
+          concepto: tx.concepto,
+          monto: tx.monto,
+          tipo: tx.tipo as any,
+          estado: 'EJECUTADO',
+          frecuencia: 'UNICA',
+          categoriaId: tx.categoriaId,
+          subcategoriaId: tx.subcategoriaId,
+        },
+      })
+    }
+
+    console.log(`Created ${transacciones.length} transactions`)
+  }
+
   console.log(`Seed complete. User: freddy@cashmind.local / CashMind2026!`)
 }
 
