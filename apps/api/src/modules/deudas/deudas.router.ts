@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth } from '../../middleware/auth.middleware'
-import { listar, obtener, crear, actualizar, eliminar, listarCuotas } from './deudas.controller'
+import { listar, obtener, crear, actualizar, eliminar, listarCuotas, aplicarPago } from './deudas.controller'
 
 export const deudasRouter = Router()
 
@@ -11,4 +11,5 @@ deudasRouter.get('/:id', obtener)
 deudasRouter.post('/', crear)
 deudasRouter.put('/:id', actualizar)
 deudasRouter.delete('/:id', eliminar)
-deudasRouter.get('/:id/cuotas', listarCuotas)
+deudasRouter.get('/:id/pagos', listarCuotas)
+deudasRouter.post('/:id/pagos', aplicarPago)

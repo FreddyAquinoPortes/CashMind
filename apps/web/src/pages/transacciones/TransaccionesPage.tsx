@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type {
@@ -7,6 +7,8 @@ import type {
   EstadoTransaccion,
   Categoria,
   CuentaBancaria,
+  Persona,
+  Deuda,
   PaginatedResponse,
 } from '../../lib/types'
 import {
@@ -53,12 +55,12 @@ function formatDate(iso: string): string {
   return `${d}/${m}/${y}`
 }
 
-function formatMonto(monto: number, tipo: TipoTransaccion): JSX.Element {
+function formatMonto(monto: number | string, tipo: TipoTransaccion): JSX.Element {
   const formatted = new Intl.NumberFormat('es-DO', {
     style: 'currency',
     currency: 'DOP',
     minimumFractionDigits: 2,
-  }).format(Math.abs(monto))
+  }).format(Math.abs(parseFloat(String(monto))))
 
   const isNeg = tipo === 'GASTO' || tipo === 'PAGO_DEUDA'
   const isPos = tipo === 'INGRESO'
@@ -70,16 +72,30 @@ function formatMonto(monto: number, tipo: TipoTransaccion): JSX.Element {
   )
 }
 
+// ── Toast ──────────────────────────────────────────────────────────────────
+function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
+  return (
+    <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-xl shadow-2xl text-sm font-medium
+      ${type === 'success' ? 'bg-success text-white' : 'bg-danger text-white'}`}>
+      {msg}
+    </div>
+  )
+}
+
 // ── Modal wrapper ──────────────────────────────────────────────────────────
 function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8">
-      <div className={`bg-surface border border-border rounded-xl w-full shadow-2xl p-6 mx-4 ${wide ? 'max-w-2xl' : 'max-w-md'}`}>
-        <div className="flex items-center justify-between mb-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className={`bg-surface border border-border rounded-xl w-full shadow-2xl mx-4 flex flex-col max-h-[90vh] ${wide ? 'max-w-2xl' : 'max-w-md'}`}>
+        {/* Fixed header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 flex-shrink-0">
           <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors text-xl leading-none">&times;</button>
         </div>
-        {children}
+        {/* Scrollable content */}
+        <div className="overflow-y-auto flex-1 px-6 pb-6">
+          {children}
+        </div>
       </div>
     </div>
   )
@@ -113,6 +129,9 @@ interface TxFormState {
   categoriaId: string
   subcategoriaId: string
   notas: string
+  // PAGO_DEUDA extras (not sent to API as columns — handled server-side)
+  personaId: string
+  deudaId: string
 }
 
 const EMPTY_FORM: TxFormState = {
@@ -125,12 +144,20 @@ const EMPTY_FORM: TxFormState = {
   categoriaId: '',
   subcategoriaId: '',
   notas: '',
+  personaId: '',
+  deudaId: '',
 }
+
+const fmtCOP = (n: string | number) =>
+  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2 })
+    .format(parseFloat(String(n)))
 
 function TransaccionForm({
   initial,
   cuentas,
   categorias,
+  personas,
+  deudas,
   onSubmit,
   onClose,
   loading,
@@ -138,21 +165,52 @@ function TransaccionForm({
   initial?: Partial<TxFormState>
   cuentas: CuentaBancaria[]
   categorias: Categoria[]
+  personas: Persona[]
+  deudas: Deuda[]
   onSubmit: (d: TxFormState) => void
   onClose: () => void
   loading: boolean
 }) {
   const [form, setForm] = useState<TxFormState>({ ...EMPTY_FORM, ...initial })
 
-  const set = (key: keyof TxFormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm(p => ({ ...p, [key]: e.target.value }))
+  const set = (key: keyof TxFormState) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm(p => ({ ...p, [key]: e.target.value }))
+
+  // When persona changes, clear deuda selection
+  const handlePersonaChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    setForm(p => ({ ...p, personaId: e.target.value, deudaId: '', monto: '' }))
+
+  // When deuda is selected, auto-fill concepto and suggest saldo as monto
+  const handleDeudaChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const deudaId = e.target.value
+    const deuda = deudas.find(d => d.id === deudaId)
+    const persona = personas.find(p => p.id === form.personaId)
+    setForm(prev => ({
+      ...prev,
+      deudaId,
+      monto: deuda ? String(parseFloat(String(deuda.saldoActual)).toFixed(2)) : prev.monto,
+      concepto: deuda && persona
+        ? `Pago deuda — ${persona.displayName}`
+        : prev.concepto,
+    }))
+  }
 
   const selectedCat = categorias.find(c => c.id === form.categoriaId)
   const subcats = selectedCat?.subcategorias ?? []
 
-  const handleCatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleCatChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
     setForm(p => ({ ...p, categoriaId: e.target.value, subcategoriaId: '' }))
-  }
+
+  const isPagoDeuda = form.tipo === 'PAGO_DEUDA'
+
+  // Deudas filtradas por persona seleccionada (solo activas)
+  const deudasPersona = deudas.filter(
+    d => d.personaId === form.personaId && d.estado === 'ACTIVA'
+  )
+
+  const selectedDeuda = deudas.find(d => d.id === form.deudaId)
+  const saldoDeuda = selectedDeuda ? parseFloat(String(selectedDeuda.saldoActual)) : null
 
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(form) }} className="flex flex-col gap-4">
@@ -174,10 +232,66 @@ function TransaccionForm({
         </label>
       </div>
 
+      {/* ── PAGO_DEUDA: persona + deuda selectors ── */}
+      {isPagoDeuda && (
+        <div className="flex flex-col gap-3 bg-orange-500/5 border border-orange-500/20 rounded-xl p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold text-orange-400 uppercase tracking-wider">
+            <span>💳</span> Vinculación de deuda
+          </div>
+
+          {/* Persona */}
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Persona / Entidad acreedora *
+            <select
+              required={isPagoDeuda}
+              value={form.personaId}
+              onChange={handlePersonaChange}
+              className="input"
+            >
+              <option value="">— Seleccionar persona —</option>
+              {personas.map(p => (
+                <option key={p.id} value={p.id}>{p.displayName}</option>
+              ))}
+            </select>
+          </label>
+
+          {/* Deuda — aparece solo si hay persona seleccionada */}
+          {form.personaId && (
+            <label className="flex flex-col gap-1 text-sm text-text-secondary">
+              Deuda a pagar *
+              <select
+                required={isPagoDeuda}
+                value={form.deudaId}
+                onChange={handleDeudaChange}
+                className="input"
+              >
+                <option value="">— Seleccionar deuda —</option>
+                {deudasPersona.length === 0 && (
+                  <option disabled>Sin deudas activas con esta persona</option>
+                )}
+                {deudasPersona.map(d => (
+                  <option key={d.id} value={d.id}>
+                    {d.tipo} — Saldo: {fmtCOP(d.saldoActual)}
+                    {d.numeroCuotas ? ` (${d.numeroCuotas} cuotas)` : ''}
+                  </option>
+                ))}
+              </select>
+              {selectedDeuda && (
+                <div className="flex items-center justify-between text-xs mt-1 px-1">
+                  <span className="text-text-muted">Saldo pendiente:</span>
+                  <span className="font-semibold text-danger">{fmtCOP(selectedDeuda.saldoActual)}</span>
+                </div>
+              )}
+            </label>
+          )}
+        </div>
+      )}
+
       {/* Concepto */}
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Concepto *
-        <input required value={form.concepto} onChange={set('concepto')} className="input" placeholder="Ej. Supermercado Nacional" />
+        <input required value={form.concepto} onChange={set('concepto')} className="input"
+          placeholder="Ej. Supermercado Nacional" />
       </label>
 
       <div className="grid grid-cols-2 gap-4">
@@ -187,13 +301,17 @@ function TransaccionForm({
           <input
             type="number"
             required
-            min="0"
+            min="0.01"
             step="0.01"
+            max={saldoDeuda ?? undefined}
             value={form.monto}
             onChange={set('monto')}
             className="input"
             placeholder="0.00"
           />
+          {saldoDeuda !== null && (
+            <span className="text-xs text-text-muted">Máximo: {fmtCOP(saldoDeuda)}</span>
+          )}
         </label>
 
         {/* Estado */}
@@ -231,15 +349,13 @@ function TransaccionForm({
         </label>
       </div>
 
-      {/* Subcategoría — only shown when a category is selected */}
+      {/* Subcategoría */}
       {form.categoriaId && subcats.length > 0 && (
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Subcategoría
           <select value={form.subcategoriaId} onChange={set('subcategoriaId')} className="input">
             <option value="">— Sin subcategoría —</option>
-            {subcats.map(s => (
-              <option key={s.id} value={s.id}>{s.nombre}</option>
-            ))}
+            {subcats.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
           </select>
         </label>
       )}
@@ -247,13 +363,8 @@ function TransaccionForm({
       {/* Notas */}
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Notas
-        <textarea
-          value={form.notas}
-          onChange={set('notas')}
-          className="input resize-none"
-          rows={2}
-          placeholder="Observaciones opcionales…"
-        />
+        <textarea value={form.notas} onChange={set('notas')} className="input resize-none" rows={2}
+          placeholder="Observaciones opcionales…" />
       </label>
 
       <div className="flex gap-2 justify-end mt-2">
@@ -297,6 +408,12 @@ export function TransaccionesPage() {
   const [page, setPage] = useState(0)
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [modal, setModal] = useState<ModalState>(null)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3500)
+  }
 
   // Queries
   const { data: txData, isLoading: txLoading } = useQuery<PaginatedResponse<Transaccion>>({
@@ -318,37 +435,71 @@ export function TransaccionesPage() {
 
   const { data: cuentas = [] } = useQuery<CuentaBancaria[]>({
     queryKey: ['cuentas'],
-    queryFn: async () => {
-      const { data } = await api.get('/cuentas')
-      return data.data
-    },
+    queryFn: async () => (await api.get('/cuentas')).data.data,
   })
 
   const { data: categorias = [] } = useQuery<Categoria[]>({
     queryKey: ['categorias'],
-    queryFn: async () => {
-      const { data } = await api.get('/categorias')
-      return data.data
-    },
+    queryFn: async () => (await api.get('/categorias')).data.data,
+  })
+
+  const { data: personas = [] } = useQuery<Persona[]>({
+    queryKey: ['personas'],
+    queryFn: async () => (await api.get('/personas')).data.data,
+  })
+
+  const { data: deudas = [] } = useQuery<Deuda[]>({
+    queryKey: ['deudas'],
+    queryFn: async () => (await api.get('/deudas')).data.data,
   })
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['transacciones'] })
+    qc.invalidateQueries({ queryKey: ['deudas'] })
+    qc.invalidateQueries({ queryKey: ['cuentas'] })
+  }
+
+  // Build API payload from form — extract deudaId separately
+  const buildPayload = (f: TxFormState) => {
+    const { personaId, deudaId, ...rest } = f
+    return {
+      ...rest,
+      monto: parseFloat(f.monto),
+      fecha: f.fecha ? new Date(f.fecha + 'T00:00:00').toISOString() : new Date().toISOString(),
+      cuentaId:      f.cuentaId      || null,
+      categoriaId:   f.categoriaId   || null,
+      subcategoriaId: f.subcategoriaId || null,
+      frecuencia: 'UNICA',
+      // Only send deudaId when tipo=PAGO_DEUDA and a deuda is selected
+      ...(f.tipo === 'PAGO_DEUDA' && deudaId ? { deudaId } : {}),
+    }
   }
 
   const createTx = useMutation({
     mutationFn: (d: object) => api.post('/transacciones', d),
-    onSuccess: () => { invalidate(); setModal(null) },
+    onSuccess: () => { invalidate(); setModal(null); showToast('Transacción creada') },
+    onError: (e: any) => {
+      const msg = e?.response?.data?.error ?? e?.message ?? 'Error al crear la transacción'
+      showToast(msg, 'error')
+    },
   })
 
   const updateTx = useMutation({
     mutationFn: ({ id, d }: { id: string; d: object }) => api.put(`/transacciones/${id}`, d),
-    onSuccess: () => { invalidate(); setModal(null) },
+    onSuccess: () => { invalidate(); setModal(null); showToast('Transacción actualizada') },
+    onError: (e: any) => {
+      const msg = e?.response?.data?.error ?? e?.message ?? 'Error al actualizar la transacción'
+      showToast(msg, 'error')
+    },
   })
 
   const deleteTx = useMutation({
     mutationFn: (id: string) => api.delete(`/transacciones/${id}`),
-    onSuccess: () => { invalidate(); setModal(null) },
+    onSuccess: () => { invalidate(); setModal(null); showToast('Transacción eliminada') },
+    onError: (e: any) => {
+      const msg = e?.response?.data?.error ?? e?.message ?? 'Error al eliminar la transacción'
+      showToast(msg, 'error')
+    },
   })
 
   const transactions = txData?.items ?? []
@@ -359,10 +510,10 @@ export function TransaccionesPage() {
   const summary = useMemo(() => {
     const ingresos = transactions
       .filter(t => t.tipo === 'INGRESO')
-      .reduce((s, t) => s + t.monto, 0)
+      .reduce((s, t) => s + parseFloat(String(t.monto)), 0)
     const gastos = transactions
       .filter(t => t.tipo === 'GASTO')
-      .reduce((s, t) => s + t.monto, 0)
+      .reduce((s, t) => s + parseFloat(String(t.monto)), 0)
     return { ingresos, gastos, balance: ingresos - gastos }
   }, [transactions])
 
@@ -386,6 +537,7 @@ export function TransaccionesPage() {
 
   return (
     <div className="flex flex-col gap-5">
+      {toast && <Toast {...toast} />}
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
@@ -646,19 +798,11 @@ export function TransaccionesPage() {
           <TransaccionForm
             cuentas={cuentas}
             categorias={categorias}
+            personas={personas}
+            deudas={deudas}
             onClose={() => setModal(null)}
             loading={createTx.isPending}
-            onSubmit={d => createTx.mutate({
-              fecha: d.fecha,
-              concepto: d.concepto,
-              monto: parseFloat(d.monto),
-              tipo: d.tipo,
-              estado: d.estado,
-              cuentaId: d.cuentaId || null,
-              categoriaId: d.categoriaId || null,
-              subcategoriaId: d.subcategoriaId || null,
-              notas: d.notas || null,
-            })}
+            onSubmit={d => createTx.mutate(buildPayload(d))}
           />
         </Modal>
       )}
@@ -677,25 +821,16 @@ export function TransaccionesPage() {
               categoriaId: modal.tx.categoriaId ?? '',
               subcategoriaId: modal.tx.subcategoriaId ?? '',
               notas: modal.tx.notas ?? '',
+              personaId: '',
+              deudaId: '',
             }}
             cuentas={cuentas}
             categorias={categorias}
+            personas={personas}
+            deudas={deudas}
             onClose={() => setModal(null)}
             loading={updateTx.isPending}
-            onSubmit={d => updateTx.mutate({
-              id: modal.tx.id,
-              d: {
-                fecha: d.fecha,
-                concepto: d.concepto,
-                monto: parseFloat(d.monto),
-                tipo: d.tipo,
-                estado: d.estado,
-                cuentaId: d.cuentaId || null,
-                categoriaId: d.categoriaId || null,
-                subcategoriaId: d.subcategoriaId || null,
-                notas: d.notas || null,
-              },
-            })}
+            onSubmit={d => updateTx.mutate({ id: modal.tx.id, d: buildPayload(d) })}
           />
         </Modal>
       )}

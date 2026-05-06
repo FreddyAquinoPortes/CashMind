@@ -11,6 +11,7 @@ import { deudasRouter } from './modules/deudas/deudas.router'
 import { transaccionesRouter } from './modules/transacciones/transacciones.router'
 import categoriasRouter from './modules/categorias/categorias.router'
 import { personasRouter } from './modules/personas/personas.router'
+import { eventosRouter } from './modules/eventos/eventos.router'
 import importacionRouter from './modules/importacion/importacion.router'
 import { errorHandler } from './middleware/error.middleware'
 import { requestLogger } from './middleware/logger.middleware'
@@ -39,6 +40,7 @@ export function createApp() {
   app.use('/api/transacciones', transaccionesRouter)
   app.use('/api/categorias', categoriasRouter)
   app.use('/api/personas', personasRouter)
+  app.use('/api/eventos', eventosRouter)
   app.use('/api/importacion', importacionRouter)
 
   app.use(errorHandler)

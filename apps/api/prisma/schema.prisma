@@ -160,6 +160,9 @@ model TarjetaCredito {
   banco              String
   alias              String?
   ultimosCuatro      String
+  franquicia         String?        // VISA, MASTERCARD, AMEX, DISCOVER
+  tipoTarjeta        String?        // CREDITO, DEBITO
+  categoriaTarjeta   String?        // STANDARD, GOLD, PLATINUM, BLACK
   limite             Decimal        @db.Decimal(15, 2)
   saldoActual        Decimal        @default(0) @db.Decimal(15, 2)
   tasaInteres        Decimal        @default(0) @db.Decimal(5, 2)
@@ -222,7 +225,9 @@ model Persona {
   id                   String        @id @default(cuid())
   clienteId            String
   cliente              Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  tipo                 String        @default("persona") // persona, entidad
   nombre               String
+  apellido             String?
   relacion             String?
   telefono             String?
   email                String?
@@ -243,15 +248,15 @@ model Transaccion {
   detalle          String?
   comercio         String?
   tipo             TipoTransaccion
-  categoriaId      String
-  subcategoriaId   String
-  subcategoria     Subcategoria      @relation(fields: [subcategoriaId], references: [id])
+  categoriaId      String?
+  subcategoriaId   String?
+  subcategoria     Subcategoria?     @relation(fields: [subcategoriaId], references: [id])
   cuentaId         String?
   tarjetaId        String?
   cuenta           CuentaBancaria?   @relation(fields: [cuentaId], references: [id])
   tarjeta          TarjetaCredito?   @relation(fields: [tarjetaId], references: [id])
   fecha            DateTime
-  frecuencia       Frecuencia
+  frecuencia       Frecuencia        @default(UNICA)
   valorRecurrente  Decimal?          @db.Decimal(15, 2)
   diaRecurrencia   Int?
   estado           EstadoTransaccion
@@ -279,6 +284,7 @@ model Deuda {
   id            String            @id @default(cuid())
   clienteId     String
   cliente       Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  concepto      String?
   acreedorTexto String?
   personaId     String?
   persona       Persona?          @relation(fields: [personaId], references: [id])
@@ -317,10 +323,12 @@ model Evento {
   clienteId           String
   cliente             Cliente      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   nombre              String
+  tipo                String       @default("PAGO_PROGRAMADO")
   fecha               DateTime
   recurrente          Boolean      @default(false)
   tipoRecurrencia     String?
-  presupuestoEstimado Decimal      @db.Decimal(15, 2)
+  presupuestoEstimado Decimal      @default(0) @db.Decimal(15, 2)
+  moneda              String       @default("DOP")
   rangoMin            Decimal?     @db.Decimal(15, 2)
   rangoMax            Decimal?     @db.Decimal(15, 2)
   prioridad           Int          @default(3)
@@ -329,6 +337,8 @@ model Evento {
   persona             Persona?     @relation(fields: [personaId], references: [id])
   notas               String?
   transacciones       Transaccion[]
+
+  @@index([clienteId, fecha])
 }
 
 // =================== VEHICULOS ===================

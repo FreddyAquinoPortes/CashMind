@@ -5,6 +5,11 @@ import { LoginPage } from './pages/auth/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { CategoriasPage } from './pages/categorias/CategoriasPage'
 import { TransaccionesPage } from './pages/transacciones/TransaccionesPage'
+import { CuentasPage } from './pages/cuentas/CuentasPage'
+import { TarjetasPage } from './pages/tarjetas/TarjetasPage'
+import { PersonasPage } from './pages/personas/PersonasPage'
+import { DeudasPage } from './pages/deudas/DeudasPage'
+import { EventosPage } from './pages/eventos/EventosPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore(s => s.user)
@@ -28,17 +33,17 @@ export default function App() {
       <Route path="/" element={<RequireAuth><AppLayout /></RequireAuth>}>
         <Route index element={<DashboardPage />} />
         <Route path="transacciones" element={<TransaccionesPage />} />
-        <Route path="cuentas"       element={<ComingSoon title="Cuentas" />} />
-        <Route path="tarjetas"      element={<ComingSoon title="Tarjetas" />} />
-        <Route path="deudas"        element={<ComingSoon title="Deudas" />} />
-        <Route path="personas"      element={<ComingSoon title="Personas" />} />
-        <Route path="eventos"       element={<ComingSoon title="Eventos" />} />
+        <Route path="cuentas"       element={<CuentasPage />} />
+        <Route path="tarjetas"      element={<TarjetasPage />} />
+        <Route path="deudas"        element={<DeudasPage />} />
+        <Route path="personas"      element={<PersonasPage />} />
+        <Route path="categorias"    element={<CategoriasPage />} />
+        <Route path="eventos"       element={<EventosPage />} />
         <Route path="combustible"   element={<ComingSoon title="Combustible" />} />
         <Route path="presupuestos"  element={<ComingSoon title="Presupuestos" />} />
         <Route path="proyecciones"  element={<ComingSoon title="Proyecciones" />} />
         <Route path="reportes"      element={<ComingSoon title="Reportes" />} />
         <Route path="importacion"   element={<ComingSoon title="Importación" />} />
-        <Route path="categorias"    element={<CategoriasPage />} />
         <Route path="ajustes"       element={<ComingSoon title="Ajustes" />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

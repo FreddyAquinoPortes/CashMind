@@ -263,7 +263,7 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
   const selectedName = value?.replace('tabler:', '') || ''
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="relative flex flex-col gap-2">
       {/* Trigger button — shows current icon */}
       <div className="flex items-center gap-2">
         <button
@@ -292,9 +292,9 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
         )}
       </div>
 
-      {/* Picker panel */}
+      {/* Picker panel — absolutely positioned so it floats over modal content */}
       {open && (
-        <div className="border border-border rounded-xl bg-background overflow-hidden shadow-xl">
+        <div className="absolute top-full left-0 right-0 z-[200] border border-border rounded-xl bg-surface overflow-hidden shadow-2xl mt-1">
           {/* Search */}
           <div className="p-2 border-b border-border">
             <input

@@ -54,7 +54,15 @@ export async function eliminar(req: AuthRequest, res: Response, next: NextFuncti
 export async function listarCuotas(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const clienteId = await resolveClienteId(req.user!.id)
-    const data = await service.listarCuotas(req.params['id']!, clienteId)
+    const data = await service.listarPagos(req.params['id']!, clienteId)
+    res.json({ data })
+  } catch (err) { next(err) }
+}
+
+export async function aplicarPago(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const clienteId = await resolveClienteId(req.user!.id)
+    const data = await service.aplicarPago(req.params['id']!, clienteId, req.body)
     res.json({ data })
   } catch (err) { next(err) }
 }
