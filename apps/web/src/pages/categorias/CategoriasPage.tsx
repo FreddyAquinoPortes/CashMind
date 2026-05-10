@@ -339,9 +339,13 @@ function SubcategoriaRow({
       <span className="text-sm text-text-muted select-none">•</span>
       <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: sub.color ?? '#94a3b8' }} />
       <span className="text-sm text-text-secondary flex-1 flex items-center gap-1.5">
-        {sub.icono?.startsWith('tabler:')
-          ? <Icon icon={sub.icono} className="w-4 h-4" style={{ color: sub.color ?? '#94a3b8' }} />
-          : sub.icono || '•'
+        {sub.icono
+          ? <Icon
+              icon={sub.icono.includes(':') ? sub.icono : `tabler:${sub.icono}`}
+              className="w-4 h-4"
+              style={{ color: sub.color ?? '#94a3b8' }}
+            />
+          : <span className="text-text-muted">•</span>
         }
         {sub.nombre}
       </span>
@@ -406,11 +410,13 @@ function CategoriaRow({
           className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-base"
           style={{ backgroundColor: (cat.color ?? '#1e8e5a') + '33' }}
         >
-          {cat.icono?.startsWith('tabler:')
-            ? <Icon icon={cat.icono} className="w-5 h-5" style={{ color: cat.color ?? '#22c55e' }} />
-            : cat.icono
-              ? <span className="text-base">{cat.icono}</span>
-              : <Icon icon="tabler:tag" className="w-5 h-5" style={{ color: cat.color ?? '#22c55e' }} />
+          {cat.icono
+            ? <Icon
+                icon={cat.icono.includes(':') ? cat.icono : `tabler:${cat.icono}`}
+                className="w-5 h-5"
+                style={{ color: cat.color ?? '#22c55e' }}
+              />
+            : <Icon icon="tabler:tag" className="w-5 h-5" style={{ color: cat.color ?? '#22c55e' }} />
           }
         </div>
 

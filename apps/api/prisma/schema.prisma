@@ -206,6 +206,7 @@ model Categoria {
   esEsencial    Boolean        @default(false)
   orden         Int            @default(0)
   subcategorias Subcategoria[]
+  eventos       Evento[]
 }
 
 model Subcategoria {
@@ -217,6 +218,7 @@ model Subcategoria {
   color         String?
   icono         String?
   transacciones Transaccion[]
+  eventos       Evento[]
   asignaciones  AsignacionPresupuesto[]
 }
 
@@ -335,6 +337,10 @@ model Evento {
   estado              EstadoEvento @default(PLANIFICADO)
   personaId           String?
   persona             Persona?     @relation(fields: [personaId], references: [id])
+  categoriaId         String?
+  categoria           Categoria?   @relation(fields: [categoriaId], references: [id])
+  subcategoriaId      String?
+  subcategoria        Subcategoria? @relation(fields: [subcategoriaId], references: [id])
   notas               String?
   transacciones       Transaccion[]
 
@@ -343,17 +349,33 @@ model Evento {
 
 // =================== VEHICULOS ===================
 model Vehiculo {
-  id            String    @id @default(cuid())
+  id            String                 @id @default(cuid())
   clienteId     String
-  cliente       Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  cliente       Cliente                @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   marca         String
   modelo        String
   ano           Int
-  mpgRealWorld  Decimal   @db.Decimal(5, 2)
-  margenConsumo Decimal   @default(15) @db.Decimal(5, 2)
+  mpgRealWorld  Decimal                @db.Decimal(5, 2)
+  margenConsumo Decimal                @default(15) @db.Decimal(5, 2)
   fuenteMpg     String?
   rutas         Ruta[]
-  activo        Boolean   @default(true)
+  rendimientos  VehiculoRendimiento[]
+  activo        Boolean                @default(true)
+}
+
+model VehiculoRendimiento {
+  id              String   @id @default(cuid())
+  vehiculoId      String
+  vehiculo        Vehiculo @relation(fields: [vehiculoId], references: [id], onDelete: Cascade)
+  tipoCombustible String
+  rendimiento     Decimal  @db.Decimal(6, 2)
+  unidad          String   @default("mpg")
+  margenConsumo   Decimal  @default(15) @db.Decimal(5, 2)
+  fuente          String?
+  createdAt       DateTime @default(now())
+
+  @@unique([vehiculoId, tipoCombustible])
+  @@index([vehiculoId])
 }
 
 model Ruta {
@@ -365,6 +387,7 @@ model Ruta {
   nombre           String
   distanciaKm      Decimal   @db.Decimal(8, 2)
   vecesPorSemana   Int
+  tipoCombustible  String    @default("Regular")
   porcentajePropio Decimal   @default(100) @db.Decimal(5, 2)
   activa           Boolean   @default(true)
 }

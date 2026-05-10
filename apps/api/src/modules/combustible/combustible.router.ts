@@ -6,6 +6,26 @@ import { CombustibleService } from './combustible.service'
 export const combustibleRouter = Router()
 const svc = new CombustibleService()
 
+// ── Rendimientos por combustible ───────────────────────────────────────────
+combustibleRouter.get('/vehiculos/:id/rendimientos', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    res.json({ data: await svc.listRendimientos(req.params.id!) })
+  } catch (err) { next(err) }
+})
+
+combustibleRouter.post('/vehiculos/:id/rendimientos', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    res.status(201).json({ data: await svc.upsertRendimiento(req.params.id!, req.body) })
+  } catch (err) { next(err) }
+})
+
+combustibleRouter.delete('/vehiculos/rendimientos/:id', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    await svc.removeRendimiento(req.params.id!)
+    res.json({ data: { ok: true } })
+  } catch (err) { next(err) }
+})
+
 // ── Vehículos ──────────────────────────────────────────────────────────────
 combustibleRouter.get('/clientes/:clienteId/vehiculos', requireAuth, async (req: AuthRequest, res, next) => {
   try {
@@ -76,10 +96,22 @@ combustibleRouter.post('/combustible/precios', requireAuth, async (req: AuthRequ
   } catch (err) { next(err) }
 })
 
+combustibleRouter.patch('/combustible/precios/:id', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    res.json({ data: await svc.updatePrecio(req.params.id!, req.body) })
+  } catch (err) { next(err) }
+})
+
 combustibleRouter.delete('/combustible/precios/:id', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     await svc.removePrecio(req.params.id!)
     res.json({ data: { ok: true } })
+  } catch (err) { next(err) }
+})
+
+combustibleRouter.get('/combustible/precios/tipo/:tipo', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    res.json({ data: await svc.listPreciosByTipo(req.params.tipo!) })
   } catch (err) { next(err) }
 })
 

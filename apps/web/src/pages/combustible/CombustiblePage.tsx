@@ -25,11 +25,12 @@ const ICON_B = new L.Icon({
 })
 
 // ── Types ──────────────────────────────────────────────────────────────────
-interface Vehiculo { id: string; marca: string; modelo: string; ano: number; mpgRealWorld: number; margenConsumo: number; fuenteMpg: string | null; activo: boolean }
-interface Ruta { id: string; nombre: string; distanciaKm: number; vecesPorSemana: number; porcentajePropio: number; activa: boolean; vehiculoId: string | null; vehiculo: { id: string; marca: string; modelo: string; ano: number } | null }
+interface Rendimiento { id: string; tipoCombustible: string; rendimiento: number; unidad: string; margenConsumo: number; fuente: string | null }
+interface Vehiculo { id: string; marca: string; modelo: string; ano: number; mpgRealWorld: number; margenConsumo: number; fuenteMpg: string | null; activo: boolean; rendimientos?: Rendimiento[] }
+interface Ruta { id: string; nombre: string; distanciaKm: number; vecesPorSemana: number; tipoCombustible: string; porcentajePropio: number; activa: boolean; vehiculoId: string | null; vehiculo: { id: string; marca: string; modelo: string; ano: number } | null }
 interface Precio { id: string; tipo: string; precio: number; moneda: string; fecha: string; fuente: string | null }
-interface CalcRuta { id: string; nombre: string; distanciaKm: number; vecesPorSemana: number; porcentajePropio: number; vehiculo: { marca: string; modelo: string; mpgEfectivo: number } | null; kmSemanal: number; kmMensual: number; galonesMes: number; costoTotal: number; costoNeto: number }
-interface Calculo { precioCombustible: { precio: number; tipo: string; fecha: string } | null; rutas: CalcRuta[]; totales: { kmSemanal: number; kmMensual: number; galonesMes: number; costoTotal: number; costoNeto: number } }
+interface CalcRuta { id: string; nombre: string; distanciaKm: number; vecesPorSemana: number; tipoCombustible: string; porcentajePropio: number; vehiculo: { marca: string; modelo: string; rendimientoEfectivo: number | null; unidad: string } | null; kmSemanal: number; kmMensual: number; consumoMes: number; unidadConsumo: string; costoTotal: number; costoNeto: number; precioCombustibleUsado: number }
+interface Calculo { preciosPorTipo: Record<string, number>; rutas: CalcRuta[]; totales: { kmSemanal: number; kmMensual: number; costoTotal: number; costoNeto: number } }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt = (n: number) => new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n)
@@ -340,8 +341,8 @@ function VehiculoForm({ initial, onSubmit, loading, onClose }: { initial?: VForm
 }
 
 // ── RutaForm ───────────────────────────────────────────────────────────────
-interface RForm { vehiculoId: string; nombre: string; distanciaKm: string; vecesPorSemana: string; porcentajePropio: string }
-const EMPTY_R: RForm = { vehiculoId: '', nombre: '', distanciaKm: '', vecesPorSemana: '5', porcentajePropio: '100' }
+interface RForm { vehiculoId: string; nombre: string; distanciaKm: string; vecesPorSemana: string; tipoCombustible: string; porcentajePropio: string }
+const EMPTY_R: RForm = { vehiculoId: '', nombre: '', distanciaKm: '', vecesPorSemana: '5', tipoCombustible: 'Regular', porcentajePropio: '100' }
 
 function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose }: {
   initial?: RForm; vehiculos: Vehiculo[]; geoCtx: GeoContext | null
@@ -370,13 +371,36 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose }: {
           placeholder="Ej. Baní → Capital (ida y vuelta)" />
       </div>
 
-      <div className="flex flex-col gap-1 text-sm text-text-secondary">
-        Vehículo
-        <select value={f.vehiculoId} onChange={upd('vehiculoId')} className="input">
-          <option value="">Sin vehículo</option>
-          {vehiculos.map(v => <option key={v.id} value={v.id}>{v.marca} {v.modelo} {v.ano}</option>)}
-        </select>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
+          Vehículo
+          <select value={f.vehiculoId} onChange={upd('vehiculoId')} className="input">
+            <option value="">Sin vehículo</option>
+            {vehiculos.map(v => <option key={v.id} value={v.id}>{v.marca} {v.modelo} {v.ano}</option>)}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
+          Combustible
+          <select value={f.tipoCombustible} onChange={upd('tipoCombustible')} className="input">
+            {Object.entries(TIPOS_CONFIG).map(([tipo, cfg]) => (
+              <option key={tipo} value={tipo}>{cfg.emoji} {tipo}</option>
+            ))}
+          </select>
+        </div>
       </div>
+      {/* Aviso si el vehículo no tiene rendimiento registrado para el combustible elegido */}
+      {f.vehiculoId && (() => {
+        const v = vehiculos.find(v => v.id === f.vehiculoId)
+        const tieneRend = v?.rendimientos?.some(r => r.tipoCombustible === f.tipoCombustible)
+        if (!tieneRend && f.tipoCombustible !== 'Regular') {
+          return (
+            <p className="text-xs bg-warning/10 border border-warning/30 text-warning rounded-lg px-3 py-2">
+              ⚠ Este vehículo no tiene rendimiento registrado para <strong>{f.tipoCombustible}</strong>. Se usará el MPG base como fallback. Agrégalo en la pestaña <strong>Vehículos</strong>.
+            </p>
+          )
+        }
+        return null
+      })()}
 
       {/* Distancia + toggle mapa */}
       <div className="flex flex-col gap-2 text-sm text-text-secondary">
@@ -465,23 +489,33 @@ function TabResumen({ cid }: { cid: string }) {
   if (isLoading) return <div className="flex items-center justify-center h-48 text-text-muted text-sm">Calculando…</div>
   if (!calculo) return null
 
-  const { totales, rutas, precioCombustible } = calculo
+  const { totales, rutas, preciosPorTipo } = calculo
   const kpis = [
-    { label: 'km / semana',    value: fmtDec(totales.kmSemanal, 0),  unit: 'km',  color: 'text-primary' },
-    { label: 'km / mes',       value: fmtDec(totales.kmMensual, 0),  unit: 'km',  color: 'text-primary' },
-    { label: 'Galones / mes',  value: fmtDec(totales.galonesMes, 2), unit: 'gal', color: 'text-warning' },
-    { label: 'Costo total',    value: fmt(totales.costoTotal),        unit: '',    color: 'text-danger'  },
-    { label: 'Costo neto tuyo',value: fmt(totales.costoNeto),         unit: '',    color: 'text-success' },
+    { label: 'km / semana',    value: fmtDec(totales.kmSemanal, 0), unit: 'km', color: 'text-primary' },
+    { label: 'km / mes',       value: fmtDec(totales.kmMensual, 0), unit: 'km', color: 'text-primary' },
+    { label: 'Costo total',    value: fmt(totales.costoTotal),       unit: '',   color: 'text-danger'  },
+    { label: 'Costo neto tuyo',value: fmt(totales.costoNeto),        unit: '',   color: 'text-success' },
   ]
 
   return (
     <div className="flex flex-col gap-5">
-      {precioCombustible && (
-        <p className="text-xs text-text-muted">
-          ⛽ Precio usado: <strong className="text-text-primary">DOP {fmtDec(precioCombustible.precio, 2)}/gal</strong> ({precioCombustible.tipo}) · {new Date(precioCombustible.fecha).toLocaleDateString('es-DO')}
-        </p>
+      {/* Precios de combustible usados */}
+      {Object.keys(preciosPorTipo).length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(preciosPorTipo).map(([tipo, precio]) => {
+            const cfg = TIPOS_CONFIG[tipo] ?? { emoji: '⛽', color: 'text-text-primary' }
+            return (
+              <span key={tipo} className="inline-flex items-center gap-1.5 bg-surface border border-border rounded-full px-3 py-1 text-xs">
+                <span>{cfg.emoji}</span>
+                <span className="text-text-muted">{tipo}:</span>
+                <span className={`font-semibold ${cfg.color}`}>DOP {fmtDec(precio, 2)}</span>
+              </span>
+            )
+          })}
+        </div>
       )}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {kpis.map(k => (
           <div key={k.label} className="bg-surface border border-border rounded-xl p-4">
             <p className="text-xs text-text-muted mb-1 uppercase tracking-wider leading-tight">{k.label}</p>
@@ -501,27 +535,42 @@ function TabResumen({ cid }: { cid: string }) {
               <thead>
                 <tr className="border-b border-border text-xs text-text-muted uppercase tracking-wider">
                   <th className="px-4 py-2 text-left">Ruta</th>
+                  <th className="px-4 py-2 text-left">Combustible</th>
                   <th className="px-4 py-2 text-right">km/mes</th>
-                  <th className="px-4 py-2 text-right">Galones</th>
+                  <th className="px-4 py-2 text-right">Consumo</th>
                   <th className="px-4 py-2 text-right">Costo total</th>
                   <th className="px-4 py-2 text-right">Costo neto</th>
-                  <th className="px-4 py-2 text-right">% propio</th>
                 </tr>
               </thead>
               <tbody>
-                {rutas.map((r, i) => (
-                  <tr key={r.id} className={i % 2 === 0 ? '' : 'bg-surface-elevated/40'}>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-text-primary">{r.nombre}</p>
-                      {r.vehiculo && <p className="text-xs text-text-muted">{r.vehiculo.marca} {r.vehiculo.modelo} · {r.vehiculo.mpgEfectivo} mpg ef.</p>}
-                    </td>
-                    <td className="px-4 py-3 text-right text-text-secondary">{fmtDec(r.kmMensual, 0)}</td>
-                    <td className="px-4 py-3 text-right text-text-secondary">{fmtDec(r.galonesMes, 2)}</td>
-                    <td className="px-4 py-3 text-right text-danger font-medium">{fmt(r.costoTotal)}</td>
-                    <td className="px-4 py-3 text-right text-success font-medium">{fmt(r.costoNeto)}</td>
-                    <td className="px-4 py-3 text-right text-text-muted">{r.porcentajePropio}%</td>
-                  </tr>
-                ))}
+                {rutas.map((r, i) => {
+                  const cfg = TIPOS_CONFIG[r.tipoCombustible] ?? { emoji: '⛽', color: 'text-text-primary' }
+                  return (
+                    <tr key={r.id} className={i % 2 === 0 ? '' : 'bg-surface-elevated/40'}>
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-text-primary">{r.nombre}</p>
+                        {r.vehiculo && (
+                          <p className="text-xs text-text-muted">
+                            {r.vehiculo.marca} {r.vehiculo.modelo}
+                            {r.vehiculo.rendimientoEfectivo !== null && (
+                              <> · <strong>{fmtDec(r.vehiculo.rendimientoEfectivo, 1)}</strong> {r.vehiculo.unidad === 'km_m3' ? 'km/m³' : 'mpg'} ef.</>
+                            )}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1 text-xs font-medium ${cfg.color}`}>
+                          {cfg.emoji} {r.tipoCombustible}
+                        </span>
+                        <p className="text-xs text-text-muted mt-0.5">DOP {fmtDec(r.precioCombustibleUsado, 2)}/{r.unidadConsumo}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right text-text-secondary">{fmtDec(r.kmMensual, 0)}</td>
+                      <td className="px-4 py-3 text-right text-text-secondary">{fmtDec(r.consumoMes, 2)} {r.unidadConsumo}</td>
+                      <td className="px-4 py-3 text-right text-danger font-medium">{fmt(r.costoTotal)}</td>
+                      <td className="px-4 py-3 text-right text-success font-medium">{fmt(r.costoNeto)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -548,7 +597,14 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
   })
   const { data: vehiculos = [] } = useQuery<Vehiculo[]>({
     queryKey: ['vehiculos', cid],
-    queryFn: async () => (await api.get(`/clientes/${cid}/vehiculos`)).data.data,
+    queryFn: async () => {
+      const vs: Vehiculo[] = (await api.get(`/clientes/${cid}/vehiculos`)).data.data
+      const withRend = await Promise.all(vs.map(async v => {
+        const r = await api.get(`/vehiculos/${v.id}/rendimientos`)
+        return { ...v, rendimientos: r.data.data }
+      }))
+      return withRend
+    },
     enabled: !!cid,
   })
   const [modal, setModal] = useState<'new' | { type: 'edit'; ruta: Ruta } | { type: 'del'; ruta: Ruta } | null>(null)
@@ -574,7 +630,7 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
 
   const toPayload = (f: RForm) => ({
     nombre: f.nombre, distanciaKm: Number(f.distanciaKm), vecesPorSemana: Number(f.vecesPorSemana),
-    porcentajePropio: Number(f.porcentajePropio), vehiculoId: f.vehiculoId || undefined,
+    tipoCombustible: f.tipoCombustible, porcentajePropio: Number(f.porcentajePropio), vehiculoId: f.vehiculoId || undefined,
   })
 
   return (
@@ -600,6 +656,7 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
                   <span>🔁 {r.vecesPorSemana}×/sem → {fmtDec(kmMes, 0)} km/mes</span>
                   <span>👤 {r.porcentajePropio}% propio</span>
                   {r.vehiculo && <span>🚗 {r.vehiculo.marca} {r.vehiculo.modelo}</span>}
+                  {(() => { const cfg = TIPOS_CONFIG[r.tipoCombustible]; return cfg ? <span>{cfg.emoji} {r.tipoCombustible}</span> : null })()}
                 </div>
               </div>
               <div className="flex gap-1">
@@ -626,7 +683,7 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
       {modal !== null && typeof modal === 'object' && modal.type === 'edit' && (
         <Modal title="Editar ruta" onClose={() => setModal(null)} wide>
           <RutaForm vehiculos={vehiculos} geoCtx={geoCtx} loading={update.isPending} onClose={() => setModal(null)}
-            initial={{ vehiculoId: modal.ruta.vehiculoId ?? '', nombre: modal.ruta.nombre, distanciaKm: String(modal.ruta.distanciaKm), vecesPorSemana: String(modal.ruta.vecesPorSemana), porcentajePropio: String(modal.ruta.porcentajePropio) }}
+            initial={{ vehiculoId: modal.ruta.vehiculoId ?? '', nombre: modal.ruta.nombre, distanciaKm: String(modal.ruta.distanciaKm), vecesPorSemana: String(modal.ruta.vecesPorSemana), tipoCombustible: modal.ruta.tipoCombustible, porcentajePropio: String(modal.ruta.porcentajePropio) }}
             onSubmit={f => update.mutate({ id: modal.ruta.id, d: toPayload(f) })} />
         </Modal>
       )}
@@ -645,6 +702,144 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
   )
 }
 
+// ── RendimientoPanel ────────────────────────────────────────────────────────
+function RendimientoPanel({ vehiculo, onClose }: { vehiculo: Vehiculo; onClose(): void }) {
+  const qc = useQueryClient()
+  const { data: rendimientos = [], isLoading } = useQuery<Rendimiento[]>({
+    queryKey: ['rendimientos', vehiculo.id],
+    queryFn: async () => (await api.get(`/vehiculos/${vehiculo.id}/rendimientos`)).data.data,
+  })
+  const [form, setForm] = useState({ tipoCombustible: 'Regular', rendimiento: '', unidad: 'mpg', margenConsumo: '15', fuente: '' })
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000) }
+  const inv = () => { qc.invalidateQueries({ queryKey: ['rendimientos', vehiculo.id] }); qc.invalidateQueries({ queryKey: ['combustible-calculo'] }); qc.invalidateQueries({ queryKey: ['vehiculos'] }) }
+
+  // Cuando el tipo cambia a GNC forzar unidad km_m3
+  const handleTipoCambio = (tipo: string) => {
+    setForm(p => ({ ...p, tipoCombustible: tipo, unidad: tipo === 'GNC' ? 'km_m3' : 'mpg' }))
+  }
+
+  const upsert = useMutation({
+    mutationFn: (d: object) => api.post(`/vehiculos/${vehiculo.id}/rendimientos`, d),
+    onSuccess: () => { inv(); setForm({ tipoCombustible: 'Regular', rendimiento: '', unidad: 'mpg', margenConsumo: '15', fuente: '' }); setEditingId(null); showToast('Rendimiento guardado') },
+    onError: (e: any) => showToast(e?.response?.data?.error ?? e.message, 'error'),
+  })
+  const del = useMutation({
+    mutationFn: (id: string) => api.delete(`/vehiculos/rendimientos/${id}`),
+    onSuccess: () => { inv(); showToast('Eliminado') },
+    onError: (e: any) => showToast(e?.response?.data?.error ?? e.message, 'error'),
+  })
+
+  const startEdit = (r: Rendimiento) => {
+    setEditingId(r.id)
+    setForm({ tipoCombustible: r.tipoCombustible, rendimiento: String(r.rendimiento), unidad: r.unidad, margenConsumo: String(r.margenConsumo), fuente: r.fuente ?? '' })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setForm({ tipoCombustible: 'Regular', rendimiento: '', unidad: 'mpg', margenConsumo: '15', fuente: '' })
+  }
+
+  const submitForm = () => {
+    if (!form.rendimiento) return
+    upsert.mutate({ tipoCombustible: form.tipoCombustible, rendimiento: Number(form.rendimiento), unidad: form.unidad, margenConsumo: Number(form.margenConsumo), fuente: form.fuente || undefined })
+  }
+
+  const unidadLabel = form.unidad === 'km_m3' ? 'km/m³' : 'mpg'
+  const rendEfectivo = form.rendimiento && form.margenConsumo
+    ? Number(form.rendimiento) / (1 + Number(form.margenConsumo) / 100)
+    : null
+
+  return (
+    <div className="flex flex-col gap-4">
+      {toast && <Toast {...toast} />}
+      <p className="text-sm text-text-muted">
+        Registra el rendimiento real de <strong className="text-text-primary">{vehiculo.marca} {vehiculo.modelo}</strong> para cada tipo de combustible.
+        El cálculo de cada ruta usará el rendimiento del combustible que le asignes.
+      </p>
+
+      {/* Formulario nuevo/editar */}
+      <div className="bg-surface-elevated border border-border rounded-xl p-4 flex flex-col gap-3">
+        <h4 className="text-sm font-semibold text-text-primary">{editingId ? 'Editar rendimiento' : 'Agregar rendimiento'}</h4>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="flex flex-col gap-1 text-xs text-text-secondary">
+            Combustible
+            <select value={form.tipoCombustible} onChange={e => handleTipoCambio(e.target.value)} className="input text-sm" disabled={!!editingId}>
+              {Object.entries(TIPOS_CONFIG).map(([t, c]) => <option key={t} value={t}>{c.emoji} {t}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1 text-xs text-text-secondary">
+            Rendimiento ({unidadLabel})
+            <input type="number" step="0.1" min={0.1} value={form.rendimiento}
+              onChange={e => setForm(p => ({ ...p, rendimiento: e.target.value }))}
+              className="input text-sm" placeholder={form.unidad === 'km_m3' ? '12.5' : '34.3'} />
+          </div>
+          <div className="flex flex-col gap-1 text-xs text-text-secondary">
+            Margen consumo %
+            <input type="number" step="0.5" min={0} max={100} value={form.margenConsumo}
+              onChange={e => setForm(p => ({ ...p, margenConsumo: e.target.value }))}
+              className="input text-sm" placeholder="15" />
+          </div>
+        </div>
+        <div className="flex flex-col gap-1 text-xs text-text-secondary">
+          Fuente (opcional)
+          <input value={form.fuente} onChange={e => setForm(p => ({ ...p, fuente: e.target.value }))}
+            className="input text-sm" placeholder="Medición propia, fuelly.com…" />
+        </div>
+        {rendEfectivo !== null && (
+          <p className="text-xs text-text-muted bg-background rounded-lg px-3 py-2">
+            💡 Rendimiento efectivo: <strong className="text-text-primary">{fmtDec(rendEfectivo, 1)} {unidadLabel}</strong> (con margen de {form.margenConsumo}%)
+          </p>
+        )}
+        <div className="flex gap-2 justify-end">
+          {editingId && <button type="button" className="btn-ghost text-sm" onClick={cancelEdit}>Cancelar</button>}
+          <button type="button" className="btn-primary text-sm" disabled={upsert.isPending || !form.rendimiento} onClick={submitForm}>
+            {upsert.isPending ? 'Guardando…' : editingId ? 'Actualizar' : 'Guardar'}
+          </button>
+        </div>
+      </div>
+
+      {/* Lista de rendimientos */}
+      {isLoading ? <div className="h-12 flex items-center justify-center text-text-muted text-sm">Cargando…</div> : (
+        <div className="flex flex-col gap-2">
+          {rendimientos.length === 0 && (
+            <p className="text-center text-text-muted text-sm py-4">Sin rendimientos registrados. Agrega uno arriba.</p>
+          )}
+          {rendimientos.map(r => {
+            const cfg = TIPOS_CONFIG[r.tipoCombustible] ?? { emoji: '⛽', color: 'text-text-primary' }
+            const ef = Number(r.rendimiento) / (1 + Number(r.margenConsumo) / 100)
+            const unidLabel = r.unidad === 'km_m3' ? 'km/m³' : 'mpg'
+            return (
+              <div key={r.id} className="bg-surface border border-border rounded-lg px-4 py-3 flex items-center gap-3">
+                <span className="text-lg">{cfg.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`font-semibold text-sm ${cfg.color}`}>{r.tipoCombustible}</span>
+                    <span className="text-xs text-text-muted">
+                      {fmtDec(Number(r.rendimiento), 1)} {unidLabel} real · margen {r.margenConsumo}%
+                    </span>
+                    <span className="text-xs font-medium text-text-primary">→ {fmtDec(ef, 1)} {unidLabel} ef.</span>
+                    {r.fuente && <span className="text-xs text-text-muted">· {r.fuente}</span>}
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={() => startEdit(r)} className="p-1.5 rounded text-text-muted hover:text-primary hover:bg-primary/10 text-xs">✏</button>
+                  <button onClick={() => del.mutate(r.id)} className="p-1.5 rounded text-text-muted hover:text-danger hover:bg-danger/10 text-xs">🗑</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="flex justify-end pt-2 border-t border-border">
+        <button className="btn-ghost text-sm" onClick={onClose}>Cerrar</button>
+      </div>
+    </div>
+  )
+}
+
 // ── Tab: Vehículos ─────────────────────────────────────────────────────────
 function TabVehiculos({ cid }: { cid: string }) {
   const qc = useQueryClient()
@@ -653,7 +848,7 @@ function TabVehiculos({ cid }: { cid: string }) {
     queryFn: async () => (await api.get(`/clientes/${cid}/vehiculos`)).data.data,
     enabled: !!cid,
   })
-  const [modal, setModal] = useState<'new' | { type: 'edit'; v: Vehiculo } | { type: 'del'; v: Vehiculo } | null>(null)
+  const [modal, setModal] = useState<'new' | { type: 'edit'; v: Vehiculo } | { type: 'del'; v: Vehiculo } | { type: 'rend'; v: Vehiculo } | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000) }
   const inv = () => { qc.invalidateQueries({ queryKey: ['vehiculos', cid] }); qc.invalidateQueries({ queryKey: ['combustible-calculo', cid] }) }
@@ -691,23 +886,26 @@ function TabVehiculos({ cid }: { cid: string }) {
         {vehiculos.map(v => {
           const mpgEf = Number(v.mpgRealWorld) / (1 + Number(v.margenConsumo) / 100)
           return (
-            <div key={v.id} className="bg-surface border border-border rounded-xl p-4 flex items-center gap-4">
-              <div className="text-3xl">🚗</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-text-primary">{v.marca} {v.modelo} {v.ano}</span>
-                  {!v.activo && <span className="text-xs bg-text-muted/20 text-text-muted px-1.5 py-0.5 rounded">Inactivo</span>}
+            <div key={v.id} className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-4">
+                <div className="text-3xl">🚗</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-text-primary">{v.marca} {v.modelo} {v.ano}</span>
+                    {!v.activo && <span className="text-xs bg-text-muted/20 text-text-muted px-1.5 py-0.5 rounded">Inactivo</span>}
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-text-muted">
+                    <span>⚡ {fmtDec(Number(v.mpgRealWorld), 1)} MPG base (gasolina)</span>
+                    <span>📉 Margen: {fmtDec(Number(v.margenConsumo), 1)}%</span>
+                    <span>✅ <strong>{fmtDec(mpgEf, 1)} MPG ef.</strong></span>
+                    {v.fuenteMpg && <span>📄 {v.fuenteMpg}</span>}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-text-muted">
-                  <span>⚡ {fmtDec(Number(v.mpgRealWorld), 1)} MPG real</span>
-                  <span>📉 Margen: {fmtDec(Number(v.margenConsumo), 1)}%</span>
-                  <span>✅ <strong>{fmtDec(mpgEf, 1)} MPG efectivo</strong></span>
-                  {v.fuenteMpg && <span>📄 {v.fuenteMpg}</span>}
+                <div className="flex gap-1">
+                  <button onClick={() => setModal({ type: 'rend', v })} className="p-1.5 rounded text-text-muted hover:text-warning hover:bg-warning/10 text-sm" title="Rendimientos por combustible">⛽</button>
+                  <button onClick={() => setModal({ type: 'edit', v })} className="p-1.5 rounded text-text-muted hover:text-primary hover:bg-primary/10">✏</button>
+                  <button onClick={() => setModal({ type: 'del', v })} className="p-1.5 rounded text-text-muted hover:text-danger hover:bg-danger/10">🗑</button>
                 </div>
-              </div>
-              <div className="flex gap-1">
-                <button onClick={() => setModal({ type: 'edit', v })} className="p-1.5 rounded text-text-muted hover:text-primary hover:bg-primary/10">✏</button>
-                <button onClick={() => setModal({ type: 'del', v })} className="p-1.5 rounded text-text-muted hover:text-danger hover:bg-danger/10">🗑</button>
               </div>
             </div>
           )
@@ -743,90 +941,148 @@ function TabVehiculos({ cid }: { cid: string }) {
           </div>
         </Modal>
       )}
+      {modal !== null && typeof modal === 'object' && modal.type === 'rend' && (
+        <Modal title={`⛽ Rendimientos · ${modal.v.marca} ${modal.v.modelo}`} onClose={() => setModal(null)} wide>
+          <RendimientoPanel vehiculo={modal.v} onClose={() => setModal(null)} />
+        </Modal>
+      )}
     </div>
   )
 }
 
 // ── Tab: Precios ───────────────────────────────────────────────────────────
+const TIPOS_CONFIG: Record<string, { color: string; emoji: string; unidad: string }> = {
+  Regular: { color: 'text-success',  emoji: '🟢', unidad: 'gal' },
+  Premium: { color: 'text-warning',  emoji: '🟡', unidad: 'gal' },
+  Gasoil:  { color: 'text-primary',  emoji: '🔵', unidad: 'gal' },
+  GLP:     { color: 'text-purple-400', emoji: '🟣', unidad: 'gal' },
+  GNC:     { color: 'text-slate-400',  emoji: '⚪', unidad: 'm³'  },
+}
+const TIPOS_LISTA = Object.keys(TIPOS_CONFIG)
+
+interface PrecioForm { tipo: string; precio: string; fecha: string; fuente: string }
+const emptyForm = (): PrecioForm => ({ tipo: 'Regular', precio: '', fecha: new Date().toISOString().slice(0, 10), fuente: '' })
+
+function PrecioFormPanel({ initial, onSave, onCancel, loading }: {
+  initial?: PrecioForm; onSave(f: PrecioForm): void; onCancel(): void; loading: boolean
+}) {
+  const [f, setF] = useState<PrecioForm>(initial ?? emptyForm())
+  const upd = (k: keyof PrecioForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(p => ({ ...p, [k]: e.target.value }))
+  const cfg = TIPOS_CONFIG[f.tipo]
+  return (
+    <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
+          Tipo
+          <select value={f.tipo} onChange={upd('tipo')} className="input">
+            {TIPOS_LISTA.map(t => <option key={t}>{t}</option>)}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
+          Precio (DOP/{cfg?.unidad ?? 'gal'})
+          <input type="number" step="0.01" value={f.precio} onChange={upd('precio')} className="input" placeholder="294.50" />
+        </div>
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
+          Fecha
+          <input type="date" value={f.fecha} onChange={upd('fecha')} className="input" />
+        </div>
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
+          Fuente
+          <input value={f.fuente} onChange={upd('fuente')} className="input" placeholder="DGII, bomba..." />
+        </div>
+      </div>
+      <div className="flex gap-2 justify-end">
+        <button className="btn-ghost text-sm" onClick={onCancel}>Cancelar</button>
+        <button className="btn-primary text-sm" disabled={loading || !f.precio} onClick={() => onSave(f)}>
+          {loading ? 'Guardando…' : 'Guardar'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function TabPrecios() {
   const qc = useQueryClient()
   const { data, isLoading } = useQuery<{ lista: Precio[]; latest: Precio[] }>({
     queryKey: ['combustible-precios'],
     queryFn: async () => (await api.get('/combustible/precios')).data.data,
   })
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ tipo: 'Regular', precio: '', fecha: new Date().toISOString().slice(0, 10), fuente: '' })
+  const [modal, setModal] = useState<'new' | { type: 'edit'; p: Precio } | { type: 'history'; tipo: string } | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000) }
+  const inv = () => { qc.invalidateQueries({ queryKey: ['combustible-precios'] }); qc.invalidateQueries({ queryKey: ['combustible-calculo'] }) }
 
   const create = useMutation({
     mutationFn: (d: object) => api.post('/combustible/precios', d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['combustible-precios'] }); qc.invalidateQueries({ queryKey: ['combustible-calculo'] }); setShowForm(false); showToast('Precio registrado') },
+    onSuccess: () => { inv(); setModal(null); showToast('Precio registrado') },
+    onError: (e: any) => showToast(e?.response?.data?.error ?? e.message, 'error'),
+  })
+  const update = useMutation({
+    mutationFn: ({ id, d }: { id: string; d: object }) => api.patch(`/combustible/precios/${id}`, d),
+    onSuccess: () => { inv(); setModal(null); showToast('Precio actualizado') },
     onError: (e: any) => showToast(e?.response?.data?.error ?? e.message, 'error'),
   })
   const del = useMutation({
     mutationFn: (id: string) => api.delete(`/combustible/precios/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['combustible-precios'] }); showToast('Eliminado') },
+    onSuccess: () => { inv(); showToast('Eliminado') },
+    onError: (e: any) => showToast(e?.response?.data?.error ?? e.message, 'error'),
   })
 
-  const tiposConfig: Record<string, { color: string; emoji: string }> = {
-    Regular: { color: 'text-success', emoji: '🟢' },
-    Premium: { color: 'text-warning', emoji: '🟡' },
-    Gasoil: { color: 'text-primary', emoji: '🔵' },
-  }
+  const toPayload = (f: PrecioForm) => ({
+    tipo: f.tipo, precio: Number(f.precio),
+    fecha: new Date(f.fecha).toISOString(),
+    fuente: f.fuente || undefined,
+  })
+
+  // Historial filtrado por tipo (client-side)
+  const historialPorTipo = (tipo: string) => (data?.lista ?? []).filter(p => p.tipo === tipo)
 
   return (
     <div className="flex flex-col gap-5">
       {toast && <Toast {...toast} />}
+
+      {/* Tarjetas de últimos precios */}
       {data?.latest && data.latest.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {data.latest.map(p => {
-            const cfg = tiposConfig[p.tipo] ?? { color: 'text-text-primary', emoji: '⛽' }
+            const cfg = TIPOS_CONFIG[p.tipo] ?? { color: 'text-text-primary', emoji: '⛽', unidad: 'gal' }
             return (
-              <div key={p.id} className="bg-surface border border-border rounded-xl p-4 text-center">
+              <div
+                key={p.id}
+                onClick={() => setModal({ type: 'history', tipo: p.tipo })}
+                className="bg-surface border border-border rounded-xl p-4 text-center cursor-pointer hover:border-primary/50 hover:bg-surface-elevated transition-colors group relative"
+                title={`Ver historial de ${p.tipo}`}
+              >
+                {/* botón editar */}
+                <button
+                  onClick={e => { e.stopPropagation(); setModal({ type: 'edit', p }) }}
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-text-muted hover:text-primary hover:bg-primary/10 text-xs"
+                  title="Editar precio"
+                >✏</button>
                 <p className="text-2xl mb-1">{cfg.emoji}</p>
                 <p className="text-xs text-text-muted uppercase tracking-wider">{p.tipo}</p>
                 <p className={`text-xl font-bold ${cfg.color}`}>DOP {fmtDec(Number(p.precio), 2)}</p>
                 <p className="text-xs text-text-muted mt-1">{new Date(p.fecha).toLocaleDateString('es-DO')}</p>
+                <p className="text-xs text-primary/60 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Ver historial →</p>
               </div>
             )
           })}
         </div>
       )}
+
       <div className="flex justify-end">
-        <button onClick={() => setShowForm(p => !p)} className="btn-primary text-sm">+ Registrar precio</button>
+        <button onClick={() => setModal('new')} className="btn-primary text-sm">+ Registrar precio</button>
       </div>
-      {showForm && (
-        <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-3">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="flex flex-col gap-1 text-sm text-text-secondary">
-              Tipo
-              <select value={form.tipo} onChange={e => setForm(p => ({ ...p, tipo: e.target.value }))} className="input">
-                <option>Regular</option><option>Premium</option><option>Gasoil</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-1 text-sm text-text-secondary">
-              Precio (DOP/gal)
-              <input type="number" step="0.01" value={form.precio} onChange={e => setForm(p => ({ ...p, precio: e.target.value }))} className="input" placeholder="294.50" />
-            </div>
-            <div className="flex flex-col gap-1 text-sm text-text-secondary">
-              Fecha
-              <input type="date" value={form.fecha} onChange={e => setForm(p => ({ ...p, fecha: e.target.value }))} className="input" />
-            </div>
-            <div className="flex flex-col gap-1 text-sm text-text-secondary">
-              Fuente
-              <input value={form.fuente} onChange={e => setForm(p => ({ ...p, fuente: e.target.value }))} className="input" placeholder="DGII, bomba..." />
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button className="btn-ghost text-sm" onClick={() => setShowForm(false)}>Cancelar</button>
-            <button className="btn-primary text-sm" disabled={create.isPending || !form.precio}
-              onClick={() => create.mutate({ tipo: form.tipo, precio: Number(form.precio), fecha: new Date(form.fecha).toISOString(), fuente: form.fuente || undefined })}>
-              {create.isPending ? 'Guardando…' : 'Guardar'}
-            </button>
-          </div>
-        </div>
+
+      {modal === 'new' && (
+        <PrecioFormPanel
+          loading={create.isPending}
+          onCancel={() => setModal(null)}
+          onSave={f => create.mutate(toPayload(f))}
+        />
       )}
+
+      {/* Historial general */}
       {isLoading ? <div className="h-24 flex items-center justify-center text-text-muted text-sm">Cargando…</div> : (
         <div className="bg-surface border border-border rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-border">
@@ -843,15 +1099,16 @@ function TabPrecios() {
               </tr></thead>
               <tbody>
                 {(data?.lista ?? []).map((p, i) => {
-                  const cfg = tiposConfig[p.tipo] ?? { color: 'text-text-primary', emoji: '⛽' }
+                  const cfg = TIPOS_CONFIG[p.tipo] ?? { color: 'text-text-primary', emoji: '⛽', unidad: 'gal' }
                   return (
                     <tr key={p.id} className={i % 2 === 0 ? '' : 'bg-surface-elevated/30'}>
                       <td className="px-4 py-2">{cfg.emoji} {p.tipo}</td>
                       <td className={`px-4 py-2 text-right font-mono font-medium ${cfg.color}`}>DOP {fmtDec(Number(p.precio), 2)}</td>
                       <td className="px-4 py-2 text-text-muted">{new Date(p.fecha).toLocaleDateString('es-DO')}</td>
                       <td className="px-4 py-2 text-text-muted">{p.fuente ?? '—'}</td>
-                      <td className="px-4 py-2 text-right">
-                        <button onClick={() => del.mutate(p.id)} className="text-xs text-text-muted hover:text-danger">🗑</button>
+                      <td className="px-4 py-2 text-right flex items-center justify-end gap-2">
+                        <button onClick={() => setModal({ type: 'edit', p })} className="text-xs text-text-muted hover:text-primary" title="Editar">✏</button>
+                        <button onClick={() => del.mutate(p.id)} className="text-xs text-text-muted hover:text-danger" title="Eliminar">🗑</button>
                       </td>
                     </tr>
                   )
@@ -864,6 +1121,71 @@ function TabPrecios() {
           </div>
         </div>
       )}
+
+      {/* Modal: editar precio */}
+      {modal !== null && typeof modal === 'object' && modal.type === 'edit' && (
+        <Modal title={`Editar precio · ${modal.p.tipo}`} onClose={() => setModal(null)}>
+          <PrecioFormPanel
+            loading={update.isPending}
+            initial={{
+              tipo: modal.p.tipo,
+              precio: String(modal.p.precio),
+              fecha: new Date(modal.p.fecha).toISOString().slice(0, 10),
+              fuente: modal.p.fuente ?? '',
+            }}
+            onCancel={() => setModal(null)}
+            onSave={f => update.mutate({ id: modal.p.id, d: toPayload(f) })}
+          />
+        </Modal>
+      )}
+
+      {/* Modal: historial por tipo */}
+      {modal !== null && typeof modal === 'object' && modal.type === 'history' && (() => {
+        const tipo = modal.tipo
+        const cfg = TIPOS_CONFIG[tipo] ?? { color: 'text-text-primary', emoji: '⛽', unidad: 'gal' }
+        const historial = historialPorTipo(tipo)
+        return (
+          <Modal title={`${cfg.emoji} Historial · ${tipo}`} onClose={() => setModal(null)}>
+            {historial.length === 0 ? (
+              <p className="text-center text-text-muted text-sm py-8">Sin registros para {tipo}</p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-border text-xs text-text-muted uppercase">
+                    <th className="py-2 text-left">Fecha</th>
+                    <th className="py-2 text-right">Precio</th>
+                    <th className="py-2 text-left pl-4">Fuente</th>
+                  </tr></thead>
+                  <tbody>
+                    {historial.map((p, i) => (
+                      <tr key={p.id} className={i % 2 === 0 ? '' : 'bg-surface-elevated/30'}>
+                        <td className="py-2 text-text-muted">{new Date(p.fecha).toLocaleDateString('es-DO')}</td>
+                        <td className={`py-2 text-right font-mono font-bold ${cfg.color}`}>DOP {fmtDec(Number(p.precio), 2)}</td>
+                        <td className="py-2 text-text-muted pl-4">{p.fuente ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {historial.length > 1 && (() => {
+                  const max = Math.max(...historial.map(p => Number(p.precio)))
+                  const min = Math.min(...historial.map(p => Number(p.precio)))
+                  const avg = historial.reduce((s, p) => s + Number(p.precio), 0) / historial.length
+                  return (
+                    <div className="mt-4 grid grid-cols-3 gap-2 border-t border-border pt-4">
+                      {[{ label: 'Mínimo', val: min, color: 'text-success' }, { label: 'Promedio', val: avg, color: 'text-warning' }, { label: 'Máximo', val: max, color: 'text-danger' }].map(s => (
+                        <div key={s.label} className="text-center bg-surface-elevated rounded-lg p-2">
+                          <p className="text-xs text-text-muted">{s.label}</p>
+                          <p className={`font-bold text-sm ${s.color}`}>DOP {fmtDec(s.val, 2)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+          </Modal>
+        )
+      })()}
     </div>
   )
 }
