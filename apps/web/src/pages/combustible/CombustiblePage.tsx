@@ -1,19 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  GoogleMap, Marker, DirectionsRenderer, useJsApiLoader,
-} from '@react-google-maps/api'
-import type { Libraries } from '@react-google-maps/api'
+import { MapContainer, TileLayer, Marker, Polyline, useMapEvents, useMap } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
 
-// Stable reference required by useJsApiLoader
-const GMAP_LIBS: Libraries = ['places']
-
-const GMAP_KEY = (import.meta.env['VITE_GOOGLE_MAPS_API_KEY'] as string | undefined) ?? ''
-
-// Default center: República Dominicana
-const DR_CENTER: google.maps.LatLngLiteral = { lat: 18.7357, lng: -70.1627 }
+// Fix Leaflet marker icons en Vite
+delete (L.Icon.Default.prototype as any)._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+})
+const ICON_A = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41], iconAnchor: [12, 41],
+})
+const ICON_B = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41], iconAnchor: [12, 41],
+})
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Vehiculo { id: string; marca: string; modelo: string; ano: number; mpgRealWorld: number; margenConsumo: number; fuenteMpg: string | null; activo: boolean }
@@ -26,176 +35,197 @@ interface Calculo { precioCombustible: { precio: number; tipo: string; fecha: st
 const fmt = (n: number) => new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n)
 const fmtDec = (n: number, d = 2) => n.toLocaleString('es-DO', { minimumFractionDigits: d, maximumFractionDigits: d })
 
-function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
-  return (
-    <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-5 py-3 rounded-xl shadow-2xl text-sm font-medium
-      ${type === 'success' ? 'bg-success text-white' : 'bg-danger text-white'}`}>{msg}</div>
-  )
+// ── Geolocalización + contexto de país ────────────────────────────────────
+type LatLng = [number, number]
+
+interface GeoContext {
+  coords: LatLng          // [lat, lon] del usuario
+  countryCode: string     // ISO-2 ej. "do", "us", "es"
+  countryName: string     // Nombre legible
+  viewbox: string         // lon_min,lat_min,lon_max,lat_max para Nominatim
 }
 
-function Modal({ title, onClose, children, wide }: { title: string; onClose(): void; children: React.ReactNode; wide?: boolean }) {
-  return (
-    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className={`bg-surface border border-border rounded-xl shadow-2xl flex flex-col max-h-[92vh] ${wide ? 'w-full max-w-3xl' : 'w-full max-w-md'}`}>
-        <div className="flex items-center justify-between px-6 pt-5 pb-4 flex-shrink-0 border-b border-border">
-          <h2 className="text-base font-semibold text-text-primary">{title}</h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">&times;</button>
-        </div>
-        <div className="overflow-y-auto flex-1 p-6">{children}</div>
-      </div>
-    </div>
-  )
+async function resolveGeoContext(lat: number, lon: number): Promise<GeoContext> {
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=3`,
+      { headers: { 'User-Agent': 'CashMind/1.0', 'Accept-Language': 'es' } }
+    )
+    const data = await r.json()
+    const cc: string = (data.address?.country_code ?? 'do').toLowerCase()
+    const name: string = data.address?.country ?? 'República Dominicana'
+    // Viewbox amplio (~500 km) centrado en el usuario para dar prioridad regional
+    const delta = 4.5
+    const viewbox = `${(lon - delta).toFixed(4)},${(lat - delta).toFixed(4)},${(lon + delta).toFixed(4)},${(lat + delta).toFixed(4)}`
+    return { coords: [lat, lon], countryCode: cc, countryName: name, viewbox }
+  } catch {
+    // Fallback: República Dominicana
+    return { coords: [18.7357, -70.1627], countryCode: 'do', countryName: 'República Dominicana', viewbox: '-72.0,17.4,-68.2,20.0' }
+  }
 }
 
-// ── RouteMapPicker (Google Maps) ───────────────────────────────────────────
-function RouteMapPicker({ onConfirm }: { onConfirm(km: number, nombre: string): void }) {
-  const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: GMAP_KEY,
-    libraries: GMAP_LIBS,
+function useGeoContext() {
+  const [ctx, setCtx] = useState<GeoContext | null>(null)
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      // Sin soporte → fallback RD
+      resolveGeoContext(18.7357, -70.1627).then(setCtx)
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolveGeoContext(pos.coords.latitude, pos.coords.longitude).then(setCtx),
+      ()  => resolveGeoContext(18.7357, -70.1627).then(setCtx),   // permiso denegado → RD
+      { timeout: 6000, maximumAge: 300_000 }
+    )
+  }, [])
+
+  return ctx
+}
+
+// ── Nominatim geocoding con prioridad de país ──────────────────────────────
+interface GeoResult { display_name: string; lat: string; lon: string }
+
+async function geocode(q: string, ctx: GeoContext | null): Promise<GeoResult[]> {
+  const params = new URLSearchParams({
+    q, format: 'json', limit: '6', addressdetails: '0',
   })
+  if (ctx) {
+    params.set('countrycodes', ctx.countryCode)   // Prioriza resultados del país detectado
+    params.set('viewbox', ctx.viewbox)             // Prioriza área cercana al usuario
+    params.set('bounded', '0')                     // No restringe, solo da prioridad
+  }
+  const r = await fetch(
+    `https://nominatim.openstreetmap.org/search?${params}`,
+    { headers: { 'User-Agent': 'CashMind/1.0', 'Accept-Language': 'es' } }
+  )
+  return r.json()
+}
 
-  const [posA, setPosA] = useState<google.maps.LatLngLiteral | null>(null)
-  const [posB, setPosB] = useState<google.maps.LatLngLiteral | null>(null)
-  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null)
+// ── OSRM: Distancia de conducción real ────────────────────────────────────
+async function getRoute(from: LatLng, to: LatLng): Promise<{ distanceKm: number; coords: LatLng[] } | null> {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`
+    const r = await fetch(url)
+    const data = await r.json()
+    if (data.code !== 'Ok' || !data.routes?.[0]) return null
+    const route = data.routes[0]
+    const distanceKm = route.distance / 1000
+    const coords: LatLng[] = route.geometry.coordinates.map(([lon, lat]: [number, number]) => [lat, lon])
+    return { distanceKm, coords }
+  } catch { return null }
+}
+
+// ── MapClickHandler ────────────────────────────────────────────────────────
+function MapClickHandler({ placing, onPlace }: { placing: 'A' | 'B' | null; onPlace(pos: LatLng, which: 'A' | 'B'): void }) {
+  useMapEvents({
+    click(e) { if (placing) onPlace([e.latlng.lat, e.latlng.lng], placing) },
+  })
+  return null
+}
+
+// Fuerza a Leaflet a recalcular tamaño (necesario dentro de modales)
+function MapResizer() {
+  const map = useMap()
+  useEffect(() => { const t = setTimeout(() => map.invalidateSize(), 150); return () => clearTimeout(t) }, [map])
+  return null
+}
+
+// ── RouteMapPicker ─────────────────────────────────────────────────────────
+function RouteMapPicker({ geoCtx, onConfirm }: {
+  geoCtx: GeoContext | null
+  onConfirm(km: number, nombre: string): void
+}) {
+  const [posA, setPosA] = useState<LatLng | null>(null)
+  const [posB, setPosB] = useState<LatLng | null>(null)
+  const [routeCoords, setRouteCoords] = useState<LatLng[]>([])
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
   const [placing, setPlacing] = useState<'A' | 'B' | null>(null)
-  const [routeName, setRouteName] = useState('')
+  const [searchA, setSearchA] = useState('')
+  const [searchB, setSearchB] = useState('')
+  const [suggestA, setSuggestA] = useState<GeoResult[]>([])
+  const [suggestB, setSuggestB] = useState<GeoResult[]>([])
   const [loading, setLoading] = useState(false)
-  const [userLocation, setUserLocation] = useState<google.maps.LatLngLiteral>(DR_CENTER)
-  const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null)
+  const [routeName, setRouteName] = useState('')
+  const timerA = useRef<ReturnType<typeof setTimeout>>()
+  const timerB = useRef<ReturnType<typeof setTimeout>>()
 
-  const inputARef = useRef<HTMLInputElement>(null)
-  const inputBRef = useRef<HTMLInputElement>(null)
-  const autocompleteA = useRef<google.maps.places.Autocomplete | null>(null)
-  const autocompleteB = useRef<google.maps.places.Autocomplete | null>(null)
-
-  // Detectar ubicación del usuario al montar (para bias de búsqueda)
-  useEffect(() => {
-    if (!navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
-      pos => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => { /* sin permiso → usa DR por defecto */ },
-      { timeout: 5000 }
-    )
-  }, [])
-
-  // Configurar Autocomplete con bias hacia la ubicación del usuario
-  useEffect(() => {
-    if (!isLoaded || !inputARef.current || !inputBRef.current) return
-
-    // Área de 100 km alrededor del usuario como bias (no restricción estricta)
-    const bias = new window.google.maps.LatLngBounds(
-      { lat: userLocation.lat - 0.9, lng: userLocation.lng - 0.9 },
-      { lat: userLocation.lat + 0.9, lng: userLocation.lng + 0.9 }
-    )
-
-    autocompleteA.current = new window.google.maps.places.Autocomplete(inputARef.current, {
-      bounds: bias,
-      strictBounds: false, // permite resultados fuera del bias si el usuario escribe otra cosa
-    })
-    autocompleteB.current = new window.google.maps.places.Autocomplete(inputBRef.current, {
-      bounds: bias,
-      strictBounds: false,
-    })
-
-    const listenerA = autocompleteA.current.addListener('place_changed', () => {
-      const place = autocompleteA.current!.getPlace()
-      if (place.geometry?.location) {
-        const loc = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() }
-        setPosA(loc)
-        mapInstance?.panTo(loc)
-      }
-    })
-    const listenerB = autocompleteB.current.addListener('place_changed', () => {
-      const place = autocompleteB.current!.getPlace()
-      if (place.geometry?.location) {
-        const loc = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() }
-        setPosB(loc)
-        mapInstance?.panTo(loc)
-      }
-    })
-
-    return () => {
-      window.google.maps.event.removeListener(listenerA)
-      window.google.maps.event.removeListener(listenerB)
-    }
-  }, [isLoaded, userLocation, mapInstance])
-
-  // Calcular ruta cuando ambos puntos están definidos
-  const calcRoute = useCallback(async (a: google.maps.LatLngLiteral, b: google.maps.LatLngLiteral) => {
+  const calcRoute = useCallback(async (a: LatLng, b: LatLng) => {
     setLoading(true)
-    setDirections(null)
-    setDistanceKm(null)
-    const service = new window.google.maps.DirectionsService()
-    service.route(
-      { origin: a, destination: b, travelMode: window.google.maps.TravelMode.DRIVING },
-      (result, status) => {
-        setLoading(false)
-        if (status === window.google.maps.DirectionsStatus.OK && result) {
-          setDirections(result)
-          const meters = result.routes[0]?.legs[0]?.distance?.value ?? 0
-          setDistanceKm(meters / 1000)
-        }
-      }
-    )
+    const result = await getRoute(a, b)
+    setLoading(false)
+    if (result) { setRouteCoords(result.coords); setDistanceKm(result.distanceKm) }
   }, [])
 
-  useEffect(() => {
-    if (posA && posB) calcRoute(posA, posB)
-  }, [posA, posB, calcRoute])
-
-  const handleMapClick = (e: google.maps.MapMouseEvent) => {
-    if (!placing || !e.latLng) return
-    const pos = { lat: e.latLng.lat(), lng: e.latLng.lng() }
-    if (placing === 'A') { setPosA(pos); if (inputARef.current) inputARef.current.value = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` }
-    else { setPosB(pos); if (inputBRef.current) inputBRef.current.value = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` }
+  const handlePlace = useCallback((pos: LatLng, which: 'A' | 'B') => {
+    if (which === 'A') { setPosA(pos); setSuggestA([]) }
+    else { setPosB(pos); setSuggestB([]) }
     setPlacing(null)
+    setRouteCoords([]); setDistanceKm(null)
+  }, [])
+
+  useEffect(() => { if (posA && posB) calcRoute(posA, posB) }, [posA, posB, calcRoute])
+
+  const searchGeo = (q: string, which: 'A' | 'B') => {
+    if (which === 'A') { setSearchA(q); clearTimeout(timerA.current) }
+    else { setSearchB(q); clearTimeout(timerB.current) }
+    if (q.length < 3) { which === 'A' ? setSuggestA([]) : setSuggestB([]); return }
+    const t = setTimeout(async () => {
+      const res = await geocode(q, geoCtx)
+      which === 'A' ? setSuggestA(res) : setSuggestB(res)
+    }, 450)
+    if (which === 'A') timerA.current = t; else timerB.current = t
   }
 
-  const mapCenter = posA ?? posB ?? userLocation
-
-  if (!GMAP_KEY) {
-    return (
-      <div className="bg-warning/10 border border-warning/30 rounded-xl p-5 text-sm text-text-secondary">
-        <p className="font-semibold text-text-primary mb-1">⚠️ API Key de Google Maps no configurada</p>
-        <p>Agrega <code className="bg-surface px-1 rounded text-xs">VITE_GOOGLE_MAPS_API_KEY=TU_KEY</code> en el archivo <code className="bg-surface px-1 rounded text-xs">.env</code> del proyecto.</p>
-      </div>
-    )
+  const selectGeo = (r: GeoResult, which: 'A' | 'B') => {
+    const pos: LatLng = [parseFloat(r.lat), parseFloat(r.lon)]
+    if (which === 'A') { setPosA(pos); setSearchA(r.display_name.split(',')[0]!); setSuggestA([]) }
+    else { setPosB(pos); setSearchB(r.display_name.split(',')[0]!); setSuggestB([]) }
+    setRouteCoords([]); setDistanceKm(null)
   }
 
-  if (loadError) {
-    return (
-      <div className="bg-danger/10 border border-danger/30 rounded-xl p-4 text-sm text-danger">
-        Error cargando Google Maps. Verifica que tu API key sea válida y tenga habilitadas las APIs: Maps JavaScript, Places y Directions.
-      </div>
-    )
-  }
-
-  if (!isLoaded) {
-    return <div className="h-[320px] flex items-center justify-center text-text-muted text-sm animate-pulse">Cargando Google Maps…</div>
-  }
+  const mapCenter: LatLng = posA ?? posB ?? geoCtx?.coords ?? [18.7357, -70.1627]
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Search inputs con Places Autocomplete */}
+      {/* Indicador de país detectado */}
+      {geoCtx && (
+        <p className="text-xs text-text-muted flex items-center gap-1.5">
+          <span>📍</span>
+          <span>Búsqueda priorizada para <strong className="text-text-secondary">{geoCtx.countryName}</strong></span>
+        </p>
+      )}
+
+      {/* Inputs de búsqueda */}
       <div className="grid grid-cols-2 gap-3">
         {(['A', 'B'] as const).map(w => {
-          const inputRef = w === 'A' ? inputARef : inputBRef
+          const search = w === 'A' ? searchA : searchB
+          const suggest = w === 'A' ? suggestA : suggestB
           const pos = w === 'A' ? posA : posB
           const icon = w === 'A' ? '🟢' : '🔴'
           const label = w === 'A' ? 'Origen' : 'Destino'
           return (
-            <div key={w} className="flex flex-col gap-1.5">
+            <div key={w} className="relative flex flex-col gap-1.5">
               <label className="text-xs text-text-muted font-medium">{icon} {label}</label>
               <input
-                ref={inputRef}
+                value={search}
+                onChange={e => searchGeo(e.target.value, w)}
                 placeholder={`Buscar ${label.toLowerCase()}…`}
                 className="input text-sm"
                 autoComplete="off"
               />
-              {pos && (
-                <span className="text-xs text-success">✓ coordenadas marcadas</span>
+              {/* Dropdown de sugerencias */}
+              {suggest.length > 0 && (
+                <div className="absolute top-full mt-1 z-[9999] w-full bg-surface border border-border rounded-lg shadow-xl overflow-hidden">
+                  {suggest.map((r, i) => (
+                    <button key={i} type="button" onClick={() => selectGeo(r, w)}
+                      className="w-full text-left px-3 py-2 text-xs text-text-secondary hover:bg-surface-elevated truncate block border-b border-border/40 last:border-0">
+                      {r.display_name}
+                    </button>
+                  ))}
+                </div>
               )}
+              {pos && <span className="text-xs text-success">✓ punto marcado</span>}
               <button
                 type="button"
                 onClick={() => setPlacing(p => p === w ? null : w)}
@@ -215,40 +245,23 @@ function RouteMapPicker({ onConfirm }: { onConfirm(km: number, nombre: string): 
       <div
         style={{ height: 320, cursor: placing ? 'crosshair' : 'default' }}
         className="rounded-xl overflow-hidden border border-border">
-        <GoogleMap
-          mapContainerStyle={{ height: '100%', width: '100%' }}
+        <MapContainer
           center={mapCenter}
-          zoom={posA || posB ? 13 : 9}
-          onClick={handleMapClick}
-          onLoad={m => setMapInstance(m)}
-          options={{
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: false,
-            zoomControlOptions: { position: window.google.maps.ControlPosition.RIGHT_CENTER },
-          }}
-        >
-          {posA && (
-            <Marker
-              position={posA}
-              label={{ text: 'A', color: 'white', fontWeight: 'bold', fontSize: '13px' }}
-              title="Origen"
-            />
+          zoom={geoCtx ? 10 : 8}
+          style={{ height: '100%', width: '100%' }}
+          zoomControl>
+          <MapResizer />
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          />
+          <MapClickHandler placing={placing} onPlace={handlePlace} />
+          {posA && <Marker position={posA} icon={ICON_A} />}
+          {posB && <Marker position={posB} icon={ICON_B} />}
+          {routeCoords.length > 1 && (
+            <Polyline positions={routeCoords} color="#22c55e" weight={5} opacity={0.85} />
           )}
-          {posB && (
-            <Marker
-              position={posB}
-              label={{ text: 'B', color: 'white', fontWeight: 'bold', fontSize: '13px' }}
-              title="Destino"
-            />
-          )}
-          {directions && (
-            <DirectionsRenderer
-              directions={directions}
-              options={{ suppressMarkers: true, polylineOptions: { strokeColor: '#22c55e', strokeWeight: 5 } }}
-            />
-          )}
-        </GoogleMap>
+        </MapContainer>
       </div>
 
       {/* Resultado */}
@@ -256,11 +269,11 @@ function RouteMapPicker({ onConfirm }: { onConfirm(km: number, nombre: string): 
       {distanceKm !== null && !loading && (
         <div className="bg-success/10 border border-success/30 rounded-xl p-4 text-center">
           <p className="text-2xl font-bold text-success">{distanceKm.toFixed(1)} km</p>
-          <p className="text-xs text-text-muted mt-1">Distancia de conducción · Google Maps Directions</p>
+          <p className="text-xs text-text-muted mt-1">Distancia de conducción · OpenStreetMap / OSRM</p>
         </div>
       )}
 
-      {/* Nombre de ruta + confirmar */}
+      {/* Nombre + confirmar */}
       <input
         value={routeName}
         onChange={e => setRouteName(e.target.value)}
@@ -330,15 +343,15 @@ function VehiculoForm({ initial, onSubmit, loading, onClose }: { initial?: VForm
 interface RForm { vehiculoId: string; nombre: string; distanciaKm: string; vecesPorSemana: string; porcentajePropio: string }
 const EMPTY_R: RForm = { vehiculoId: '', nombre: '', distanciaKm: '', vecesPorSemana: '5', porcentajePropio: '100' }
 
-function RutaForm({ initial, vehiculos, onSubmit, loading, onClose }: {
-  initial?: RForm; vehiculos: Vehiculo[]; onSubmit(d: RForm): void; loading: boolean; onClose(): void
+function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose }: {
+  initial?: RForm; vehiculos: Vehiculo[]; geoCtx: GeoContext | null
+  onSubmit(d: RForm): void; loading: boolean; onClose(): void
 }) {
   const [f, setF] = useState<RForm>(initial ?? EMPTY_R)
   const [showMap, setShowMap] = useState(false)
   const mapSectionRef = useRef<HTMLDivElement>(null)
   const upd = (k: keyof RForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(p => ({ ...p, [k]: e.target.value }))
 
-  // Auto-scroll al panel del mapa cuando se abre
   useEffect(() => {
     if (showMap && mapSectionRef.current) {
       setTimeout(() => mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80)
@@ -351,7 +364,6 @@ function RutaForm({ initial, vehiculos, onSubmit, loading, onClose }: {
 
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(f) }} className="flex flex-col gap-4">
-
       <div className="flex flex-col gap-1 text-sm text-text-secondary">
         Nombre de la ruta *
         <input required value={f.nombre} onChange={upd('nombre')} className="input"
@@ -391,22 +403,22 @@ function RutaForm({ initial, vehiculos, onSubmit, loading, onClose }: {
         />
       </div>
 
-      {/* Panel del mapa inline */}
+      {/* Mapa inline */}
       {showMap && (
         <div ref={mapSectionRef} className="border border-border rounded-xl overflow-hidden bg-background">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-surface">
-            <span className="text-xs font-medium text-text-secondary flex items-center gap-1.5">
-              <img src="https://maps.gstatic.com/mapfiles/api-3/images/google_gray.png" alt="Google" className="h-3 opacity-60" />
-              Selecciona origen y destino en el mapa
-            </span>
+            <span className="text-xs font-medium text-text-secondary">🗺️ Selecciona origen y destino</span>
             <button type="button" onClick={() => setShowMap(false)}
               className="text-text-muted hover:text-text-primary text-sm leading-none">&times;</button>
           </div>
           <div className="p-4">
-            <RouteMapPicker onConfirm={(km, nombre) => {
-              setF(p => ({ ...p, distanciaKm: km.toFixed(1), nombre: p.nombre || nombre }))
-              setShowMap(false)
-            }} />
+            <RouteMapPicker
+              geoCtx={geoCtx}
+              onConfirm={(km, nombre) => {
+                setF(p => ({ ...p, distanciaKm: km.toFixed(1), nombre: p.nombre || nombre }))
+                setShowMap(false)
+              }}
+            />
           </div>
         </div>
       )}
@@ -455,11 +467,11 @@ function TabResumen({ cid }: { cid: string }) {
 
   const { totales, rutas, precioCombustible } = calculo
   const kpis = [
-    { label: 'km / semana', value: fmtDec(totales.kmSemanal, 0), unit: 'km', color: 'text-primary' },
-    { label: 'km / mes', value: fmtDec(totales.kmMensual, 0), unit: 'km', color: 'text-primary' },
-    { label: 'Galones / mes', value: fmtDec(totales.galonesMes, 2), unit: 'gal', color: 'text-warning' },
-    { label: 'Costo total', value: fmt(totales.costoTotal), unit: '', color: 'text-danger' },
-    { label: 'Costo neto tuyo', value: fmt(totales.costoNeto), unit: '', color: 'text-success' },
+    { label: 'km / semana',    value: fmtDec(totales.kmSemanal, 0),  unit: 'km',  color: 'text-primary' },
+    { label: 'km / mes',       value: fmtDec(totales.kmMensual, 0),  unit: 'km',  color: 'text-primary' },
+    { label: 'Galones / mes',  value: fmtDec(totales.galonesMes, 2), unit: 'gal', color: 'text-warning' },
+    { label: 'Costo total',    value: fmt(totales.costoTotal),        unit: '',    color: 'text-danger'  },
+    { label: 'Costo neto tuyo',value: fmt(totales.costoNeto),         unit: '',    color: 'text-success' },
   ]
 
   return (
@@ -469,7 +481,6 @@ function TabResumen({ cid }: { cid: string }) {
           ⛽ Precio usado: <strong className="text-text-primary">DOP {fmtDec(precioCombustible.precio, 2)}/gal</strong> ({precioCombustible.tipo}) · {new Date(precioCombustible.fecha).toLocaleDateString('es-DO')}
         </p>
       )}
-
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {kpis.map(k => (
           <div key={k.label} className="bg-surface border border-border rounded-xl p-4">
@@ -528,7 +539,7 @@ function TabResumen({ cid }: { cid: string }) {
 }
 
 // ── Tab: Rutas ─────────────────────────────────────────────────────────────
-function TabRutas({ cid }: { cid: string }) {
+function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
   const qc = useQueryClient()
   const { data: rutas = [], isLoading } = useQuery<Ruta[]>({
     queryKey: ['rutas', cid],
@@ -608,13 +619,13 @@ function TabRutas({ cid }: { cid: string }) {
 
       {modal === 'new' && (
         <Modal title="Nueva ruta" onClose={() => setModal(null)} wide>
-          <RutaForm vehiculos={vehiculos} loading={create.isPending} onClose={() => setModal(null)}
+          <RutaForm vehiculos={vehiculos} geoCtx={geoCtx} loading={create.isPending} onClose={() => setModal(null)}
             onSubmit={f => create.mutate(toPayload(f))} />
         </Modal>
       )}
       {modal !== null && typeof modal === 'object' && modal.type === 'edit' && (
         <Modal title="Editar ruta" onClose={() => setModal(null)} wide>
-          <RutaForm vehiculos={vehiculos} loading={update.isPending} onClose={() => setModal(null)}
+          <RutaForm vehiculos={vehiculos} geoCtx={geoCtx} loading={update.isPending} onClose={() => setModal(null)}
             initial={{ vehiculoId: modal.ruta.vehiculoId ?? '', nombre: modal.ruta.nombre, distanciaKm: String(modal.ruta.distanciaKm), vecesPorSemana: String(modal.ruta.vecesPorSemana), porcentajePropio: String(modal.ruta.porcentajePropio) }}
             onSubmit={f => update.mutate({ id: modal.ruta.id, d: toPayload(f) })} />
         </Modal>
@@ -767,7 +778,6 @@ function TabPrecios() {
   return (
     <div className="flex flex-col gap-5">
       {toast && <Toast {...toast} />}
-
       {data?.latest && data.latest.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           {data.latest.map(p => {
@@ -783,11 +793,9 @@ function TabPrecios() {
           })}
         </div>
       )}
-
       <div className="flex justify-end">
         <button onClick={() => setShowForm(p => !p)} className="btn-primary text-sm">+ Registrar precio</button>
       </div>
-
       {showForm && (
         <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -819,7 +827,6 @@ function TabPrecios() {
           </div>
         </div>
       )}
-
       {isLoading ? <div className="h-24 flex items-center justify-center text-text-muted text-sm">Cargando…</div> : (
         <div className="bg-surface border border-border rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-border">
@@ -870,19 +877,13 @@ function TabTransportePublico() {
   const [viajes, setViajes] = useState<TPViaje[]>(load)
   const [form, setForm] = useState({ nombre: '', costoPorViaje: '', vecesPorSemana: '10' })
   const [showForm, setShowForm] = useState(false)
-
   const save = (list: TPViaje[]) => { setViajes(list); localStorage.setItem(LS_KEY, JSON.stringify(list)) }
-
   const add = () => {
     if (!form.nombre.trim() || !form.costoPorViaje) return
-    const nuevo: TPViaje = { id: Date.now().toString(), nombre: form.nombre.trim(), costoPorViaje: Number(form.costoPorViaje), vecesPorSemana: Number(form.vecesPorSemana) }
-    save([...viajes, nuevo])
-    setForm({ nombre: '', costoPorViaje: '', vecesPorSemana: '10' })
-    setShowForm(false)
+    save([...viajes, { id: Date.now().toString(), nombre: form.nombre.trim(), costoPorViaje: Number(form.costoPorViaje), vecesPorSemana: Number(form.vecesPorSemana) }])
+    setForm({ nombre: '', costoPorViaje: '', vecesPorSemana: '10' }); setShowForm(false)
   }
-
   const remove = (id: string) => save(viajes.filter(v => v.id !== id))
-
   const totalMensual = viajes.reduce((s, v) => s + v.costoPorViaje * v.vecesPorSemana * 4.33, 0)
   const totalSemanal = viajes.reduce((s, v) => s + v.costoPorViaje * v.vecesPorSemana, 0)
 
@@ -891,7 +892,6 @@ function TabTransportePublico() {
       <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 text-sm text-text-secondary">
         🚌 Registra tus gastos habituales en transporte público (autobús, metro, taxi, guagua, motoconcho…) para comparar contra el costo de usar tu vehículo.
       </div>
-
       {viajes.length > 0 && (
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-surface border border-border rounded-xl p-4 text-center">
@@ -904,11 +904,9 @@ function TabTransportePublico() {
           </div>
         </div>
       )}
-
       <div className="flex justify-end">
         <button onClick={() => setShowForm(p => !p)} className="btn-primary text-sm">+ Agregar viaje</button>
       </div>
-
       {showForm && (
         <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-3">
           <h3 className="text-sm font-semibold text-text-primary">Nuevo viaje en transporte público</h3>
@@ -937,7 +935,6 @@ function TabTransportePublico() {
           </div>
         </div>
       )}
-
       <div className="flex flex-col gap-3">
         {viajes.map(v => {
           const semana = v.costoPorViaje * v.vecesPorSemana
@@ -968,25 +965,51 @@ function TabTransportePublico() {
   )
 }
 
+// ── Helpers UI ─────────────────────────────────────────────────────────────
+function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
+  return (
+    <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-5 py-3 rounded-xl shadow-2xl text-sm font-medium
+      ${type === 'success' ? 'bg-success text-white' : 'bg-danger text-white'}`}>{msg}</div>
+  )
+}
+
+function Modal({ title, onClose, children, wide }: { title: string; onClose(): void; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className={`bg-surface border border-border rounded-xl shadow-2xl flex flex-col max-h-[92vh] ${wide ? 'w-full max-w-3xl' : 'w-full max-w-md'}`}>
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 flex-shrink-0 border-b border-border">
+          <h2 className="text-base font-semibold text-text-primary">{title}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">&times;</button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-6">{children}</div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'resumen', label: '📊 Resumen' },
-  { id: 'rutas', label: '🗺️ Rutas' },
+  { id: 'resumen',   label: '📊 Resumen' },
+  { id: 'rutas',     label: '🗺️ Rutas' },
   { id: 'vehiculos', label: '🚗 Vehículos' },
-  { id: 'precios', label: '⛽ Precios' },
-  { id: 'publico', label: '🚌 Transporte público' },
+  { id: 'precios',   label: '⛽ Precios' },
+  { id: 'publico',   label: '🚌 Transporte público' },
 ] as const
 type TabId = typeof TABS[number]['id']
 
 export function CombustiblePage() {
-  const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
+  const cid    = useAuthStore(s => s.clienteActivo?.id) ?? ''
   const [tab, setTab] = useState<TabId>('resumen')
+  const geoCtx = useGeoContext()   // detecta ubicación + país una sola vez al cargar
 
   return (
     <div className="flex flex-col gap-5">
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Combustible y Transporte</h1>
-        <p className="text-text-muted text-sm mt-0.5">Calcula tu gasto mensual en movilidad</p>
+        <p className="text-text-muted text-sm mt-0.5">
+          Calcula tu gasto mensual en movilidad
+          {geoCtx && <span className="ml-2 text-xs">· 📍 {geoCtx.countryName}</span>}
+        </p>
       </div>
 
       <div className="flex gap-1 border-b border-border overflow-x-auto pb-0 -mb-px">
@@ -1002,7 +1025,7 @@ export function CombustiblePage() {
 
       <div>
         {tab === 'resumen'   && <TabResumen cid={cid} />}
-        {tab === 'rutas'     && <TabRutas cid={cid} />}
+        {tab === 'rutas'     && <TabRutas cid={cid} geoCtx={geoCtx} />}
         {tab === 'vehiculos' && <TabVehiculos cid={cid} />}
         {tab === 'precios'   && <TabPrecios />}
         {tab === 'publico'   && <TabTransportePublico />}
