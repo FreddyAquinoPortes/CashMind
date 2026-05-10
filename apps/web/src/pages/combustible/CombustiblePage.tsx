@@ -1,29 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { MapContainer, TileLayer, Marker, Polyline, useMapEvents, useMap } from 'react-leaflet'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import {
+  GoogleMap, Marker, DirectionsRenderer, useJsApiLoader,
+} from '@react-google-maps/api'
+import type { Libraries } from '@react-google-maps/api'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
 
-// Fix leaflet default marker icons (Vite asset bundling issue)
-delete (L.Icon.Default.prototype as any)._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
+// Stable reference required by useJsApiLoader
+const GMAP_LIBS: Libraries = ['places']
 
-const ICON_A = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41], iconAnchor: [12, 41],
-})
-const ICON_B = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41], iconAnchor: [12, 41],
-})
+const GMAP_KEY = (import.meta.env['VITE_GOOGLE_MAPS_API_KEY'] as string | undefined) ?? ''
+
+// Default center: República Dominicana
+const DR_CENTER: google.maps.LatLngLiteral = { lat: 18.7357, lng: -70.1627 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Vehiculo { id: string; marca: string; modelo: string; ano: number; mpgRealWorld: number; margenConsumo: number; fuenteMpg: string | null; activo: boolean }
@@ -31,7 +21,6 @@ interface Ruta { id: string; nombre: string; distanciaKm: number; vecesPorSemana
 interface Precio { id: string; tipo: string; precio: number; moneda: string; fecha: string; fuente: string | null }
 interface CalcRuta { id: string; nombre: string; distanciaKm: number; vecesPorSemana: number; porcentajePropio: number; vehiculo: { marca: string; modelo: string; mpgEfectivo: number } | null; kmSemanal: number; kmMensual: number; galonesMes: number; costoTotal: number; costoNeto: number }
 interface Calculo { precioCombustible: { precio: number; tipo: string; fecha: string } | null; rutas: CalcRuta[]; totales: { kmSemanal: number; kmMensual: number; galonesMes: number; costoTotal: number; costoNeto: number } }
-interface TranspPublico { id: string; nombre: string; costoPorViaje: number; vecesPorSemana: number }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt = (n: number) => new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n)
@@ -58,136 +47,163 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose(): v
   )
 }
 
-// ── Geocoding + Routing (OpenStreetMap/OSRM) ───────────────────────────────
-interface GeoResult { display_name: string; lat: string; lon: string }
-type LatLng = [number, number]
-
-async function geocode(q: string): Promise<GeoResult[]> {
-  const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=0`, {
-    headers: { 'Accept-Language': 'es', 'User-Agent': 'CashMind/0.1' },
-  })
-  return r.json()
-}
-
-async function getRoute(from: LatLng, to: LatLng): Promise<{ distanceKm: number; coords: LatLng[] } | null> {
-  try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`
-    const r = await fetch(url)
-    const data = await r.json()
-    if (data.code !== 'Ok' || !data.routes?.[0]) return null
-    const route = data.routes[0]
-    const distanceKm = route.distance / 1000
-    const coords: LatLng[] = route.geometry.coordinates.map(([lon, lat]: [number, number]) => [lat, lon])
-    return { distanceKm, coords }
-  } catch { return null }
-}
-
-// ── Map Auto-Size (fixes Leaflet height calc inside modals) ───────────────
-function MapResizer() {
-  const map = useMap()
-  useEffect(() => {
-    const t = setTimeout(() => map.invalidateSize(), 150)
-    return () => clearTimeout(t)
-  }, [map])
-  return null
-}
-
-// ── Map Click Handler ──────────────────────────────────────────────────────
-function MapClickHandler({ placing, onPlace }: { placing: 'A' | 'B' | null; onPlace(pos: LatLng, which: 'A' | 'B'): void }) {
-  useMapEvents({
-    click(e) {
-      if (placing) onPlace([e.latlng.lat, e.latlng.lng], placing)
-    },
-  })
-  return null
-}
-
-// ── RouteMapPicker ─────────────────────────────────────────────────────────
+// ── RouteMapPicker (Google Maps) ───────────────────────────────────────────
 function RouteMapPicker({ onConfirm }: { onConfirm(km: number, nombre: string): void }) {
-  const [posA, setPosA] = useState<LatLng | null>(null)
-  const [posB, setPosB] = useState<LatLng | null>(null)
-  const [routeCoords, setRouteCoords] = useState<LatLng[]>([])
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GMAP_KEY,
+    libraries: GMAP_LIBS,
+  })
+
+  const [posA, setPosA] = useState<google.maps.LatLngLiteral | null>(null)
+  const [posB, setPosB] = useState<google.maps.LatLngLiteral | null>(null)
+  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null)
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
   const [placing, setPlacing] = useState<'A' | 'B' | null>(null)
-  const [searchA, setSearchA] = useState('')
-  const [searchB, setSearchB] = useState('')
-  const [suggestA, setSuggestA] = useState<GeoResult[]>([])
-  const [suggestB, setSuggestB] = useState<GeoResult[]>([])
-  const [loading, setLoading] = useState(false)
   const [routeName, setRouteName] = useState('')
-  const timerA = useRef<ReturnType<typeof setTimeout>>()
-  const timerB = useRef<ReturnType<typeof setTimeout>>()
+  const [loading, setLoading] = useState(false)
+  const [userLocation, setUserLocation] = useState<google.maps.LatLngLiteral>(DR_CENTER)
+  const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null)
 
-  const calcRoute = useCallback(async (a: LatLng, b: LatLng) => {
-    setLoading(true)
-    const result = await getRoute(a, b)
-    setLoading(false)
-    if (result) { setRouteCoords(result.coords); setDistanceKm(result.distanceKm) }
+  const inputARef = useRef<HTMLInputElement>(null)
+  const inputBRef = useRef<HTMLInputElement>(null)
+  const autocompleteA = useRef<google.maps.places.Autocomplete | null>(null)
+  const autocompleteB = useRef<google.maps.places.Autocomplete | null>(null)
+
+  // Detectar ubicación del usuario al montar (para bias de búsqueda)
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      pos => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => { /* sin permiso → usa DR por defecto */ },
+      { timeout: 5000 }
+    )
   }, [])
 
-  const handlePlace = useCallback((pos: LatLng, which: 'A' | 'B') => {
-    if (which === 'A') { setPosA(pos); setSuggestA([]) }
-    else { setPosB(pos); setSuggestB([]) }
-    setPlacing(null)
-    setRouteCoords([]); setDistanceKm(null)
+  // Configurar Autocomplete con bias hacia la ubicación del usuario
+  useEffect(() => {
+    if (!isLoaded || !inputARef.current || !inputBRef.current) return
+
+    // Área de 100 km alrededor del usuario como bias (no restricción estricta)
+    const bias = new window.google.maps.LatLngBounds(
+      { lat: userLocation.lat - 0.9, lng: userLocation.lng - 0.9 },
+      { lat: userLocation.lat + 0.9, lng: userLocation.lng + 0.9 }
+    )
+
+    autocompleteA.current = new window.google.maps.places.Autocomplete(inputARef.current, {
+      bounds: bias,
+      strictBounds: false, // permite resultados fuera del bias si el usuario escribe otra cosa
+    })
+    autocompleteB.current = new window.google.maps.places.Autocomplete(inputBRef.current, {
+      bounds: bias,
+      strictBounds: false,
+    })
+
+    const listenerA = autocompleteA.current.addListener('place_changed', () => {
+      const place = autocompleteA.current!.getPlace()
+      if (place.geometry?.location) {
+        const loc = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() }
+        setPosA(loc)
+        mapInstance?.panTo(loc)
+      }
+    })
+    const listenerB = autocompleteB.current.addListener('place_changed', () => {
+      const place = autocompleteB.current!.getPlace()
+      if (place.geometry?.location) {
+        const loc = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() }
+        setPosB(loc)
+        mapInstance?.panTo(loc)
+      }
+    })
+
+    return () => {
+      window.google.maps.event.removeListener(listenerA)
+      window.google.maps.event.removeListener(listenerB)
+    }
+  }, [isLoaded, userLocation, mapInstance])
+
+  // Calcular ruta cuando ambos puntos están definidos
+  const calcRoute = useCallback(async (a: google.maps.LatLngLiteral, b: google.maps.LatLngLiteral) => {
+    setLoading(true)
+    setDirections(null)
+    setDistanceKm(null)
+    const service = new window.google.maps.DirectionsService()
+    service.route(
+      { origin: a, destination: b, travelMode: window.google.maps.TravelMode.DRIVING },
+      (result, status) => {
+        setLoading(false)
+        if (status === window.google.maps.DirectionsStatus.OK && result) {
+          setDirections(result)
+          const meters = result.routes[0]?.legs[0]?.distance?.value ?? 0
+          setDistanceKm(meters / 1000)
+        }
+      }
+    )
   }, [])
 
   useEffect(() => {
     if (posA && posB) calcRoute(posA, posB)
   }, [posA, posB, calcRoute])
 
-  const searchGeo = (q: string, which: 'A' | 'B') => {
-    if (which === 'A') { setSearchA(q); clearTimeout(timerA.current) }
-    else { setSearchB(q); clearTimeout(timerB.current) }
-    if (q.length < 3) { which === 'A' ? setSuggestA([]) : setSuggestB([]); return }
-    const t = setTimeout(async () => {
-      const res = await geocode(q)
-      which === 'A' ? setSuggestA(res) : setSuggestB(res)
-    }, 500)
-    if (which === 'A') timerA.current = t; else timerB.current = t
+  const handleMapClick = (e: google.maps.MapMouseEvent) => {
+    if (!placing || !e.latLng) return
+    const pos = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+    if (placing === 'A') { setPosA(pos); if (inputARef.current) inputARef.current.value = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` }
+    else { setPosB(pos); if (inputBRef.current) inputBRef.current.value = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` }
+    setPlacing(null)
   }
 
-  const selectGeo = (r: GeoResult, which: 'A' | 'B') => {
-    const pos: LatLng = [parseFloat(r.lat), parseFloat(r.lon)]
-    if (which === 'A') { setPosA(pos); setSearchA(r.display_name.split(',')[0]!); setSuggestA([]) }
-    else { setPosB(pos); setSearchB(r.display_name.split(',')[0]!); setSuggestB([]) }
-    setRouteCoords([]); setDistanceKm(null)
+  const mapCenter = posA ?? posB ?? userLocation
+
+  if (!GMAP_KEY) {
+    return (
+      <div className="bg-warning/10 border border-warning/30 rounded-xl p-5 text-sm text-text-secondary">
+        <p className="font-semibold text-text-primary mb-1">⚠️ API Key de Google Maps no configurada</p>
+        <p>Agrega <code className="bg-surface px-1 rounded text-xs">VITE_GOOGLE_MAPS_API_KEY=TU_KEY</code> en el archivo <code className="bg-surface px-1 rounded text-xs">.env</code> del proyecto.</p>
+      </div>
+    )
   }
 
-  const center: LatLng = posA ?? posB ?? [18.7, -70.16]
+  if (loadError) {
+    return (
+      <div className="bg-danger/10 border border-danger/30 rounded-xl p-4 text-sm text-danger">
+        Error cargando Google Maps. Verifica que tu API key sea válida y tenga habilitadas las APIs: Maps JavaScript, Places y Directions.
+      </div>
+    )
+  }
+
+  if (!isLoaded) {
+    return <div className="h-[320px] flex items-center justify-center text-text-muted text-sm animate-pulse">Cargando Google Maps…</div>
+  }
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Search inputs */}
+      {/* Search inputs con Places Autocomplete */}
       <div className="grid grid-cols-2 gap-3">
         {(['A', 'B'] as const).map(w => {
-          const search = w === 'A' ? searchA : searchB
-          const suggest = w === 'A' ? suggestA : suggestB
+          const inputRef = w === 'A' ? inputARef : inputBRef
           const pos = w === 'A' ? posA : posB
           const icon = w === 'A' ? '🟢' : '🔴'
           const label = w === 'A' ? 'Origen' : 'Destino'
           return (
-            <div key={w} className="relative flex flex-col gap-1">
+            <div key={w} className="flex flex-col gap-1.5">
               <label className="text-xs text-text-muted font-medium">{icon} {label}</label>
               <input
-                value={search} onChange={e => searchGeo(e.target.value, w)}
+                ref={inputRef}
                 placeholder={`Buscar ${label.toLowerCase()}…`}
                 className="input text-sm"
+                autoComplete="off"
               />
-              {suggest.length > 0 && (
-                <div className="absolute top-full mt-1 z-[600] w-full bg-surface border border-border rounded-lg shadow-xl overflow-hidden">
-                  {suggest.map((r, i) => (
-                    <button key={i} type="button" onClick={() => selectGeo(r, w)}
-                      className="w-full text-left px-3 py-2 text-xs text-text-secondary hover:bg-surface-elevated truncate block">
-                      {r.display_name}
-                    </button>
-                  ))}
-                </div>
+              {pos && (
+                <span className="text-xs text-success">✓ coordenadas marcadas</span>
               )}
-              {pos && <span className="text-xs text-success">✓ {fmtDec(pos[0], 4)}, {fmtDec(pos[1], 4)}</span>}
-              <button type="button"
+              <button
+                type="button"
                 onClick={() => setPlacing(p => p === w ? null : w)}
-                className={`text-xs px-2 py-1 rounded border transition-colors ${placing === w ? 'border-primary bg-primary/10 text-primary' : 'border-border text-text-muted hover:border-primary/50'}`}>
+                className={`text-xs px-2 py-1 rounded border transition-colors ${
+                  placing === w
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border text-text-muted hover:border-primary/50'
+                }`}>
                 {placing === w ? '⊕ Haz clic en el mapa' : '📍 Marcar en mapa'}
               </button>
             </div>
@@ -195,36 +211,68 @@ function RouteMapPicker({ onConfirm }: { onConfirm(km: number, nombre: string): 
         })}
       </div>
 
-      {/* Map */}
-      <div className="rounded-xl overflow-hidden border border-border" style={{ height: 320, cursor: placing ? 'crosshair' : 'default' }}>
-        <MapContainer center={center} zoom={8} style={{ height: '320px', width: '100%' }} zoomControl>
-          <MapResizer />
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
-          <MapClickHandler placing={placing} onPlace={handlePlace} />
-          {posA && <Marker position={posA} icon={ICON_A} />}
-          {posB && <Marker position={posB} icon={ICON_B} />}
-          {routeCoords.length > 1 && <Polyline positions={routeCoords} color="#22c55e" weight={4} opacity={0.8} />}
-        </MapContainer>
+      {/* Mapa */}
+      <div
+        style={{ height: 320, cursor: placing ? 'crosshair' : 'default' }}
+        className="rounded-xl overflow-hidden border border-border">
+        <GoogleMap
+          mapContainerStyle={{ height: '100%', width: '100%' }}
+          center={mapCenter}
+          zoom={posA || posB ? 13 : 9}
+          onClick={handleMapClick}
+          onLoad={m => setMapInstance(m)}
+          options={{
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: false,
+            zoomControlOptions: { position: window.google.maps.ControlPosition.RIGHT_CENTER },
+          }}
+        >
+          {posA && (
+            <Marker
+              position={posA}
+              label={{ text: 'A', color: 'white', fontWeight: 'bold', fontSize: '13px' }}
+              title="Origen"
+            />
+          )}
+          {posB && (
+            <Marker
+              position={posB}
+              label={{ text: 'B', color: 'white', fontWeight: 'bold', fontSize: '13px' }}
+              title="Destino"
+            />
+          )}
+          {directions && (
+            <DirectionsRenderer
+              directions={directions}
+              options={{ suppressMarkers: true, polylineOptions: { strokeColor: '#22c55e', strokeWeight: 5 } }}
+            />
+          )}
+        </GoogleMap>
       </div>
 
-      {/* Result */}
+      {/* Resultado */}
       {loading && <p className="text-center text-sm text-text-muted animate-pulse">Calculando ruta…</p>}
-      {distanceKm !== null && (
+      {distanceKm !== null && !loading && (
         <div className="bg-success/10 border border-success/30 rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold text-success">{fmtDec(distanceKm, 1)} km</p>
-          <p className="text-xs text-text-muted mt-1">Distancia de conducción (ida y vuelta si aplica)</p>
+          <p className="text-2xl font-bold text-success">{distanceKm.toFixed(1)} km</p>
+          <p className="text-xs text-text-muted mt-1">Distancia de conducción · Google Maps Directions</p>
         </div>
       )}
 
-      {/* Route name + confirm */}
-      <input value={routeName} onChange={e => setRouteName(e.target.value)}
-        placeholder="Nombre de la ruta (ej. Baní → Capital)" className="input" />
+      {/* Nombre de ruta + confirmar */}
+      <input
+        value={routeName}
+        onChange={e => setRouteName(e.target.value)}
+        placeholder="Nombre de la ruta (ej. Baní → Capital)"
+        className="input"
+      />
       <button
         type="button"
         disabled={distanceKm === null || !routeName.trim()}
         onClick={() => distanceKm !== null && routeName.trim() && onConfirm(distanceKm, routeName.trim())}
         className="btn-primary w-full disabled:opacity-40">
-        Usar esta distancia → {distanceKm !== null ? `${fmtDec(distanceKm, 1)} km` : '—'}
+        Usar esta distancia → {distanceKm !== null ? `${distanceKm.toFixed(1)} km` : '—'}
       </button>
     </div>
   )
@@ -290,12 +338,10 @@ function RutaForm({ initial, vehiculos, onSubmit, loading, onClose }: {
   const mapSectionRef = useRef<HTMLDivElement>(null)
   const upd = (k: keyof RForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(p => ({ ...p, [k]: e.target.value }))
 
-  // Auto-scroll to map section when it opens
+  // Auto-scroll al panel del mapa cuando se abre
   useEffect(() => {
     if (showMap && mapSectionRef.current) {
-      setTimeout(() => {
-        mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      }, 50)
+      setTimeout(() => mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80)
     }
   }, [showMap])
 
@@ -306,7 +352,6 @@ function RutaForm({ initial, vehiculos, onSubmit, loading, onClose }: {
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(f) }} className="flex flex-col gap-4">
 
-      {/* ── Campos principales ── */}
       <div className="flex flex-col gap-1 text-sm text-text-secondary">
         Nombre de la ruta *
         <input required value={f.nombre} onChange={upd('nombre')} className="input"
@@ -321,7 +366,7 @@ function RutaForm({ initial, vehiculos, onSubmit, loading, onClose }: {
         </select>
       </div>
 
-      {/* ── Distancia + toggle mapa ── */}
+      {/* Distancia + toggle mapa */}
       <div className="flex flex-col gap-2 text-sm text-text-secondary">
         <div className="flex items-center justify-between">
           <span>Distancia (km) *</span>
@@ -346,11 +391,14 @@ function RutaForm({ initial, vehiculos, onSubmit, loading, onClose }: {
         />
       </div>
 
-      {/* ── Mapa inline (sin modal anidado) ── */}
+      {/* Panel del mapa inline */}
       {showMap && (
         <div ref={mapSectionRef} className="border border-border rounded-xl overflow-hidden bg-background">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-surface">
-            <span className="text-xs font-medium text-text-secondary">🗺️ Selecciona origen y destino</span>
+            <span className="text-xs font-medium text-text-secondary flex items-center gap-1.5">
+              <img src="https://maps.gstatic.com/mapfiles/api-3/images/google_gray.png" alt="Google" className="h-3 opacity-60" />
+              Selecciona origen y destino en el mapa
+            </span>
             <button type="button" onClick={() => setShowMap(false)}
               className="text-text-muted hover:text-text-primary text-sm leading-none">&times;</button>
           </div>
@@ -720,7 +768,6 @@ function TabPrecios() {
     <div className="flex flex-col gap-5">
       {toast && <Toast {...toast} />}
 
-      {/* Latest prices */}
       {data?.latest && data.latest.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           {data.latest.map(p => {
@@ -737,7 +784,6 @@ function TabPrecios() {
         </div>
       )}
 
-      {/* Add form */}
       <div className="flex justify-end">
         <button onClick={() => setShowForm(p => !p)} className="btn-primary text-sm">+ Registrar precio</button>
       </div>
@@ -774,7 +820,6 @@ function TabPrecios() {
         </div>
       )}
 
-      {/* History */}
       {isLoading ? <div className="h-24 flex items-center justify-center text-text-muted text-sm">Cargando…</div> : (
         <div className="bg-surface border border-border rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-border">
@@ -939,13 +984,11 @@ export function CombustiblePage() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Combustible y Transporte</h1>
         <p className="text-text-muted text-sm mt-0.5">Calcula tu gasto mensual en movilidad</p>
       </div>
 
-      {/* Tab bar */}
       <div className="flex gap-1 border-b border-border overflow-x-auto pb-0 -mb-px">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -957,13 +1000,12 @@ export function CombustiblePage() {
         ))}
       </div>
 
-      {/* Tab content */}
       <div>
-        {tab === 'resumen'  && <TabResumen cid={cid} />}
-        {tab === 'rutas'    && <TabRutas cid={cid} />}
-        {tab === 'vehiculos'&& <TabVehiculos cid={cid} />}
-        {tab === 'precios'  && <TabPrecios />}
-        {tab === 'publico'  && <TabTransportePublico />}
+        {tab === 'resumen'   && <TabResumen cid={cid} />}
+        {tab === 'rutas'     && <TabRutas cid={cid} />}
+        {tab === 'vehiculos' && <TabVehiculos cid={cid} />}
+        {tab === 'precios'   && <TabPrecios />}
+        {tab === 'publico'   && <TabTransportePublico />}
       </div>
     </div>
   )
