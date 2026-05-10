@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
+import { useAuthStore } from '../../store/auth.store'
 import type { Deuda, TipoDeuda, TipoPlazo, EstadoDeuda, Persona, PagoDeuda } from '../../lib/types'
 import { TIPOS_DEUDA, MONEDAS } from '../../lib/constants'
 import { PlusIcon, ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
@@ -524,13 +525,16 @@ const toPayload = (d: DeudaForm) => ({
 
 export function DeudasPage() {
   const qc = useQueryClient()
+  const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
   const { data: deudas = [], isLoading } = useQuery<Deuda[]>({
-    queryKey: ['deudas'],
-    queryFn: async () => (await api.get('/deudas')).data.data,
+    queryKey: ['deudas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/deudas`)).data.data,
+    enabled: !!cid,
   })
   const { data: personas = [] } = useQuery<Persona[]>({
-    queryKey: ['personas'],
-    queryFn: async () => (await api.get('/personas')).data.data,
+    queryKey: ['personas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/personas`)).data.data,
+    enabled: !!cid,
   })
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -540,10 +544,10 @@ export function DeudasPage() {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type }); setTimeout(() => setToast(null), 3000)
   }
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['deudas'] })
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['deudas', cid] })
 
   const create = useMutation({
-    mutationFn: (d: object) => api.post('/deudas', d),
+    mutationFn: (d: object) => api.post(`/clientes/${cid}/deudas`, d),
     onSuccess: () => { invalidate(); closeModal(); showToast('Deuda registrada') },
     onError: (e: any) => {
       const msg = e?.response?.data?.error ?? e?.message ?? 'Error al registrar deuda'
@@ -551,7 +555,7 @@ export function DeudasPage() {
     },
   })
   const update = useMutation({
-    mutationFn: ({ id, d }: { id: string; d: object }) => api.put(`/deudas/${id}`, d),
+    mutationFn: ({ id, d }: { id: string; d: object }) => api.patch(`/deudas/${id}`, d),
     onSuccess: () => { invalidate(); closeModal(); showToast('Deuda actualizada') },
     onError: (e: any) => {
       const msg = e?.response?.data?.error ?? e?.message ?? 'Error al actualizar deuda'

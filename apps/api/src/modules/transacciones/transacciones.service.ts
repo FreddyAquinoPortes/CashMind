@@ -1,197 +1,112 @@
+import { z } from 'zod'
 import { prisma } from '../../shared/prisma'
-import { Prisma } from '@prisma/client'
+import { transaccionSchema } from '@cashmind/shared'
 
-interface ListarQuery {
-  cuentaId?: string
-  desde?: string
-  hasta?: string
-  tipo?: string
-  categoriaId?: string
-  search?: string
-  limit?: number
-  offset?: number
-}
+const filtersSchema = z.object({
+  desde: z.coerce.date().optional(),
+  hasta: z.coerce.date().optional(),
+  categoriaId: z.string().optional(),
+  subcategoriaId: z.string().optional(),
+  estado: z.string().optional(),
+  tipo: z.string().optional(),
+  q: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+})
 
 export class TransaccionesService {
-  async listar(clienteId: string, query: ListarQuery = {}) {
-    const { cuentaId, desde, hasta, tipo, categoriaId, search, limit = 50, offset = 0 } = query
-    const where: Prisma.TransaccionWhereInput = { clienteId }
-    if (cuentaId)     where.cuentaId    = cuentaId
-    if (tipo)         where.tipo        = tipo as any
-    if (categoriaId)  where.categoriaId = categoriaId
-    if (desde || hasta) {
-      where.fecha = {}
-      if (desde) where.fecha.gte = new Date(desde)
-      if (hasta) where.fecha.lte = new Date(hasta)
-    }
-    if (search) where.concepto = { contains: search, mode: 'insensitive' }
+  async list(clienteId: string, query: unknown) {
+    const f = filtersSchema.parse(query)
+    const where: Record<string, unknown> = { clienteId }
+    if (f.desde || f.hasta) where['fecha'] = { gte: f.desde, lte: f.hasta }
+    if (f.categoriaId) where['categoriaId'] = f.categoriaId
+    if (f.subcategoriaId) where['subcategoriaId'] = f.subcategoriaId
+    if (f.estado) where['estado'] = f.estado
+    if (f.tipo) where['tipo'] = f.tipo
+    if (f.q) where['concepto'] = { contains: f.q, mode: 'insensitive' }
 
     const [total, items] = await Promise.all([
       prisma.transaccion.count({ where }),
       prisma.transaccion.findMany({
         where,
         include: {
-          subcategoria: { select: { id: true, nombre: true, color: true } },
-          cuenta:       { select: { id: true, alias: true, banco: true } },
+          subcategoria: { include: { categoria: true } },
+          cuenta: { select: { alias: true, banco: true } },
+          tarjeta: { select: { alias: true, ultimosCuatro: true } },
         },
         orderBy: { fecha: 'desc' },
-        take:  Number(limit),
-        skip:  Number(offset),
+        take: f.limit,
+        skip: f.offset,
       }),
     ])
-    return { total, items }
+    return { total, items, limit: f.limit, offset: f.offset }
   }
 
-  async obtener(id: string, clienteId: string) {
-    const tx = await prisma.transaccion.findFirst({
-      where: { id, clienteId },
-      include: {
-        archivosAdjuntos: false,
+  async create(clienteId: string, body: unknown) {
+    const data = transaccionSchema.parse(body)
+    const tx = await prisma.transaccion.create({
+      data: {
+        clienteId,
+        concepto: data.concepto,
+        monto: data.monto,
+        moneda: data.moneda,
+        tipo: data.tipo,
+        fecha: data.fecha,
+        frecuencia: data.frecuencia,
+        estado: data.estado,
+        porcentajePropio: data.porcentajePropio,
+        tags: data.tags,
+        categoriaId: data.categoriaId ?? null,
+        subcategoriaId: data.subcategoriaId ?? null,
+        cuentaId: data.cuentaId ?? null,
+        tarjetaId: data.tarjetaId ?? null,
+        detalle: data.detalle ?? null,
+        notas: data.notas ?? null,
+        comercio: data.comercio ?? null,
+        eventoId: data.eventoId ?? null,
+        pagadoPorId: data.pagadoPorId ?? null,
       },
     })
-    if (!tx) throw Object.assign(new Error('Transacción no encontrada'), { status: 404 })
+    if (data.cuentaId) {
+      const delta = data.tipo === 'INGRESO' ? Number(data.monto) : -Number(data.monto)
+      if (data.tipo === 'GASTO' || data.tipo === 'INGRESO') {
+        await prisma.cuentaBancaria.update({
+          where: { id: data.cuentaId },
+          data: { saldo: { increment: delta } },
+        })
+      }
+    }
     return tx
   }
 
-  async crear(clienteId: string, body: Record<string, unknown>) {
-    // Extract deudaId — not a DB column on Transaccion, handled separately
-    const { deudaId, ...txData } = body
-
-    return prisma.$transaction(async (tx) => {
-      // 1. Create the transaction record
-      const transaccion = await tx.transaccion.create({
-        data: { ...txData, clienteId } as any,
-      })
-
-      // 2. Update account balance (INGRESO adds, everything else subtracts)
-      if (transaccion.cuentaId && transaccion.monto) {
-        const delta = transaccion.tipo === 'INGRESO'
-          ? Number(transaccion.monto)
-          : -Number(transaccion.monto)
-        await tx.cuentaBancaria.update({
-          where: { id: transaccion.cuentaId },
-          data:  { saldo: { increment: delta } },
-        })
-      }
-
-      // 3. If PAGO_DEUDA + deudaId → reduce debt balance and create PagoDeuda record
-      if (transaccion.tipo === 'PAGO_DEUDA' && deudaId) {
-        const deuda = await tx.deuda.findFirst({
-          where: { id: deudaId as string, clienteId },
-        })
-        if (!deuda) {
-          throw Object.assign(new Error('Deuda no encontrada'), { status: 404 })
-        }
-
-        const montoPago  = Number(transaccion.monto)
-        const saldoActual = Number(deuda.saldoActual)
-
-        if (montoPago > saldoActual) {
-          throw Object.assign(
-            new Error(`El pago (${montoPago}) supera el saldo actual de la deuda (${saldoActual.toFixed(2)})`),
-            { status: 400 }
-          )
-        }
-
-        const nuevoSaldo  = parseFloat((saldoActual - montoPago).toFixed(2))
-        const nuevoEstado = nuevoSaldo === 0 ? 'SALDADA' : deuda.estado
-
-        // PagoDeuda histórico vinculado a esta transacción
-        await tx.pagoDeuda.create({
-          data: {
-            deudaId:       deudaId as string,
-            monto:         montoPago,
-            fecha:         transaccion.fecha,
-            estado:        'EJECUTADO',
-            transaccionId: transaccion.id,   // ← FK que vincula tx → pago
-            notas:         `Pago desde transacción: ${transaccion.concepto}`,
-          },
-        })
-
-        await tx.deuda.update({
-          where: { id: deudaId as string },
-          data:  { saldoActual: nuevoSaldo, estado: nuevoEstado as any },
-        })
-      }
-
-      return transaccion
+  async update(id: string, body: unknown) {
+    const data = transaccionSchema.partial().parse(body)
+    return prisma.transaccion.update({
+      where: { id },
+      data: {
+        ...(data.concepto !== undefined && { concepto: data.concepto }),
+        ...(data.monto !== undefined && { monto: data.monto }),
+        ...(data.moneda !== undefined && { moneda: data.moneda }),
+        ...(data.tipo !== undefined && { tipo: data.tipo }),
+        ...(data.fecha !== undefined && { fecha: data.fecha }),
+        ...(data.frecuencia !== undefined && { frecuencia: data.frecuencia }),
+        ...(data.estado !== undefined && { estado: data.estado }),
+        ...(data.porcentajePropio !== undefined && { porcentajePropio: data.porcentajePropio }),
+        ...(data.tags !== undefined && { tags: data.tags }),
+        ...(data.categoriaId !== undefined && { categoriaId: data.categoriaId ?? null }),
+        ...(data.subcategoriaId !== undefined && { subcategoriaId: data.subcategoriaId ?? null }),
+        ...(data.cuentaId !== undefined && { cuentaId: data.cuentaId ?? null }),
+        ...(data.tarjetaId !== undefined && { tarjetaId: data.tarjetaId ?? null }),
+        ...(data.detalle !== undefined && { detalle: data.detalle ?? null }),
+        ...(data.notas !== undefined && { notas: data.notas ?? null }),
+        ...(data.comercio !== undefined && { comercio: data.comercio ?? null }),
+        ...(data.eventoId !== undefined && { eventoId: data.eventoId ?? null }),
+        ...(data.pagadoPorId !== undefined && { pagadoPorId: data.pagadoPorId ?? null }),
+      },
     })
   }
 
-  async actualizar(id: string, clienteId: string, data: Record<string, unknown>) {
-    await this.obtener(id, clienteId)
-    // Strip deudaId from update (debt adjustments not supported on edit for simplicity)
-    const { deudaId, ...txData } = data
-    return prisma.transaccion.update({ where: { id }, data: txData as any })
-  }
-
-  async eliminar(id: string, clienteId: string) {
-    const transaccion = await this.obtener(id, clienteId)
-
-    return prisma.$transaction(async (tx) => {
-      // Reverse account balance
-      if (transaccion.cuentaId && transaccion.monto) {
-        const delta = transaccion.tipo === 'INGRESO'
-          ? -Number(transaccion.monto)
-          : Number(transaccion.monto)
-        await tx.cuentaBancaria.update({
-          where: { id: transaccion.cuentaId },
-          data:  { saldo: { increment: delta } },
-        })
-      }
-
-      // Reverse debt payment if this tx was linked to a PagoDeuda
-      if (transaccion.tipo === 'PAGO_DEUDA') {
-        const pago = await tx.pagoDeuda.findUnique({
-          where: { transaccionId: id },
-        })
-        if (pago) {
-          const deuda = await tx.deuda.findUnique({ where: { id: pago.deudaId } })
-          if (deuda) {
-            const saldoRestaurado = parseFloat(
-              (Number(deuda.saldoActual) + Number(pago.monto)).toFixed(2)
-            )
-            // If debt was marked SALDADA, reactivate it
-            const estadoRestaurado = deuda.estado === 'SALDADA' ? 'ACTIVA' : deuda.estado
-            await tx.deuda.update({
-              where: { id: pago.deudaId },
-              data:  { saldoActual: saldoRestaurado, estado: estadoRestaurado },
-            })
-          }
-          await tx.pagoDeuda.delete({ where: { id: pago.id } })
-        }
-      }
-
-      return tx.transaccion.delete({ where: { id } })
-    })
-  }
-
-  async categorizarAuto(clienteId: string) {
-    const reglas = await prisma.reglaCategorizacion.findMany({
-      where: { clienteId, activa: true },
-      orderBy: { prioridad: 'desc' },
-    })
-
-    const sinCategoria = await prisma.transaccion.findMany({
-      where: { clienteId, categoriaId: '' },
-    })
-
-    let actualizadas = 0
-    for (const t of sinCategoria) {
-      for (const regla of reglas) {
-        const match = regla.esRegex
-          ? new RegExp(regla.patron, 'i').test(t.concepto)
-          : t.concepto.toLowerCase().includes(regla.patron.toLowerCase())
-        if (match) {
-          await prisma.transaccion.update({
-            where: { id: t.id },
-            data:  { categoriaId: regla.categoriaId, subcategoriaId: regla.subcategoriaId },
-          })
-          actualizadas++
-          break
-        }
-      }
-    }
-    return { revisadas: sinCategoria.length, actualizadas }
+  async remove(id: string) {
+    return prisma.transaccion.delete({ where: { id } })
   }
 }

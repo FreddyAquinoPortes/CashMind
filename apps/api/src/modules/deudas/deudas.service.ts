@@ -1,121 +1,98 @@
 import { z } from 'zod'
 import { prisma } from '../../shared/prisma'
+import { deudaSchema } from '@cashmind/shared'
 
-// Base schema without refine — allows .partial() for updates
-const DeudaBaseSchema = z.object({
-  personaId:     z.string().min(1, 'Selecciona una persona/entidad'),
-  concepto:      z.string().min(1, 'El concepto es requerido').max(150),
-  acreedorTexto: z.string().max(100).optional().nullable(),
-  tipo:          z.enum(['BANCARIA', 'TARJETA', 'PERSONAL', 'COMERCIAL', 'OTRA']),
-  montoOriginal: z.coerce.number().positive('El monto debe ser mayor a 0'),
-  saldoActual:   z.coerce.number().min(0).optional(),
-  moneda:        z.string().default('DOP'),
-  fechaInicio:   z.string().transform(s => new Date(s)),
-  fechaFin:      z.string().transform(s => new Date(s)).optional().nullable(),
-  tasaInteres:   z.coerce.number().min(0).max(100).optional().nullable(),
-  tipoPlazo:     z.enum(['FIJO', 'FLEXIBLE']),
-  numeroCuotas:  z.coerce.number().int().positive().optional().nullable(),
-  diaCobro:      z.coerce.number().int().min(1).max(31).optional().nullable(),
-  estado:        z.enum(['ACTIVA', 'SALDADA', 'EN_MORA', 'RENEGOCIADA', 'CANCELADA']).default('ACTIVA'),
-  notas:         z.string().max(500).optional().nullable(),
+const pagoSchema = z.object({
+  monto: z.number().positive(),
+  fecha: z.coerce.date(),
+  notas: z.string().optional(),
 })
-
-// Full schema for creation — validates cuotas required when plazo=FIJO
-const DeudaSchema = DeudaBaseSchema.refine(
-  d => d.tipoPlazo !== 'FIJO' || (d.numeroCuotas && d.numeroCuotas > 0),
-  { message: 'Número de cuotas requerido para plazo fijo', path: ['numeroCuotas'] }
-)
-
-// Update schema — all fields optional, lighter validation
-const DeudaUpdateSchema = DeudaBaseSchema.partial().refine(
-  d => !d.tipoPlazo || d.tipoPlazo !== 'FIJO' || !d.numeroCuotas || d.numeroCuotas > 0,
-  { message: 'Número de cuotas requerido para plazo fijo', path: ['numeroCuotas'] }
-)
-
-const PagoSchema = z.object({
-  monto: z.coerce.number().positive('El monto debe ser mayor a 0'),
-  fecha: z.string().optional().transform(s => s ? new Date(s) : new Date()),
-  notas: z.string().max(200).optional().nullable(),
-})
-
-export type DeudaInput = z.infer<typeof DeudaSchema>
 
 export class DeudasService {
-  async listar(clienteId: string) {
+  async list(clienteId: string) {
     return prisma.deuda.findMany({
       where: { clienteId },
-      include: { persona: { select: { id: true, nombre: true, apellido: true, tipo: true } } },
+      include: { persona: { select: { nombre: true } }, _count: { select: { pagos: true } } },
       orderBy: { createdAt: 'desc' },
     })
   }
 
-  async obtener(id: string, clienteId: string) {
-    const deuda = await prisma.deuda.findFirst({
-      where: { id, clienteId },
-      include: {
-        persona: { select: { id: true, nombre: true, apellido: true, tipo: true } },
-        pagos: { orderBy: { fecha: 'desc' }, take: 10 },
-      },
-    })
-    if (!deuda) throw Object.assign(new Error('Deuda no encontrada'), { status: 404 })
-    return deuda
-  }
-
-  async crear(clienteId: string, body: unknown) {
-    const data = DeudaSchema.parse(body)
+  async create(clienteId: string, body: unknown) {
+    const d = deudaSchema.parse(body)
     return prisma.deuda.create({
       data: {
-        ...data,
         clienteId,
-        saldoActual: data.saldoActual ?? data.montoOriginal,
-      } as any,
+        tipo: d.tipo,
+        montoOriginal: d.montoOriginal,
+        saldoActual: d.saldoActual,
+        moneda: d.moneda ?? 'DOP',
+        fechaInicio: d.fechaInicio,
+        tipoPlazo: d.tipoPlazo,
+        acreedorTexto: d.acreedorTexto ?? null,
+        personaId: d.personaId ?? null,
+        fechaFin: d.fechaFin ?? null,
+        tasaInteres: d.tasaInteres ?? null,
+        numeroCuotas: d.numeroCuotas ?? null,
+        notas: d.notas ?? null,
+      },
     })
   }
 
-  async actualizar(id: string, clienteId: string, body: unknown) {
-    await this.obtener(id, clienteId)
-    const data = DeudaUpdateSchema.parse(body)
-    return prisma.deuda.update({ where: { id }, data: data as any })
+  async update(id: string, body: unknown) {
+    const d = deudaSchema.partial().parse(body)
+    return prisma.deuda.update({
+      where: { id },
+      data: {
+        ...(d.tipo !== undefined && { tipo: d.tipo }),
+        ...(d.montoOriginal !== undefined && { montoOriginal: d.montoOriginal }),
+        ...(d.saldoActual !== undefined && { saldoActual: d.saldoActual }),
+        ...(d.moneda !== undefined && { moneda: d.moneda }),
+        ...(d.fechaInicio !== undefined && { fechaInicio: d.fechaInicio }),
+        ...(d.tipoPlazo !== undefined && { tipoPlazo: d.tipoPlazo }),
+        ...(d.acreedorTexto !== undefined && { acreedorTexto: d.acreedorTexto ?? null }),
+        ...(d.personaId !== undefined && { personaId: d.personaId ?? null }),
+        ...(d.fechaFin !== undefined && { fechaFin: d.fechaFin ?? null }),
+        ...(d.tasaInteres !== undefined && { tasaInteres: d.tasaInteres ?? null }),
+        ...(d.numeroCuotas !== undefined && { numeroCuotas: d.numeroCuotas ?? null }),
+        ...(d.notas !== undefined && { notas: d.notas ?? null }),
+      },
+    })
   }
 
-  async eliminar(id: string, clienteId: string) {
-    await this.obtener(id, clienteId)
+  async remove(id: string) {
     return prisma.deuda.delete({ where: { id } })
   }
 
-  async listarPagos(id: string, clienteId: string) {
-    await this.obtener(id, clienteId)
-    return prisma.pagoDeuda.findMany({
-      where: { deudaId: id },
-      orderBy: { fecha: 'desc' },
-    })
-  }
-
-  async aplicarPago(id: string, clienteId: string, body: unknown) {
-    const deuda = await this.obtener(id, clienteId)
-    const { monto, fecha, notas } = PagoSchema.parse(body)
-
-    const saldoActual = parseFloat(String(deuda.saldoActual))
-    if (monto > saldoActual) {
-      throw Object.assign(
-        new Error(`El pago (${monto}) supera el saldo actual (${saldoActual})`),
-        { status: 400 }
-      )
-    }
-
-    const nuevoSaldo = parseFloat((saldoActual - monto).toFixed(2))
-    const nuevoEstado = nuevoSaldo === 0 ? 'SALDADA' : deuda.estado
-
-    const [pago] = await prisma.$transaction([
+  async registrarPago(deudaId: string, body: unknown) {
+    const { monto, fecha, notas } = pagoSchema.parse(body)
+    const deuda = await prisma.deuda.findUniqueOrThrow({ where: { id: deudaId } })
+    const nuevoSaldo = Math.max(0, Number(deuda.saldoActual) - monto)
+    await prisma.$transaction([
       prisma.pagoDeuda.create({
-        data: { deudaId: id, monto, fecha, estado: 'EJECUTADO', notas: notas ?? null },
+        data: { deudaId, monto, fecha, estado: 'EJECUTADO', notas: notas ?? null },
       }),
       prisma.deuda.update({
-        where: { id },
-        data: { saldoActual: nuevoSaldo, estado: nuevoEstado as any },
+        where: { id: deudaId },
+        data: { saldoActual: nuevoSaldo, estado: nuevoSaldo <= 0 ? 'SALDADA' : deuda.estado },
       }),
     ])
+    return { deudaId, monto, nuevoSaldo }
+  }
 
-    return { pago, nuevoSaldo, estado: nuevoEstado }
+  async amortizacion(deudaId: string) {
+    const deuda = await prisma.deuda.findUniqueOrThrow({
+      where: { id: deudaId },
+      include: { pagos: { orderBy: { fecha: 'asc' } } },
+    })
+    if (deuda.tipoPlazo !== 'FIJO' || !deuda.numeroCuotas) return { tipo: 'FLEXIBLE', pagos: deuda.pagos }
+    const cuotaMonto = Number(deuda.montoOriginal) / deuda.numeroCuotas
+    const inicio = new Date(deuda.fechaInicio)
+    const cuotas = Array.from({ length: deuda.numeroCuotas }, (_, i) => {
+      const fecha = new Date(inicio)
+      fecha.setMonth(fecha.getMonth() + i + 1)
+      const pagado = deuda.pagos[i]
+      return { numero: i + 1, monto: cuotaMonto, fecha, estado: pagado ? 'PAGADA' : 'PENDIENTE', montoPagado: pagado ? Number(pagado.monto) : 0 }
+    })
+    return { tipo: 'FIJO', cuotas }
   }
 }

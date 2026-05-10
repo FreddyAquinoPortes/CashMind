@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
+import { useAuthStore } from '../../store/auth.store'
 import type {
   Transaccion,
   TipoTransaccion,
@@ -405,6 +406,7 @@ type ModalState =
 
 export function TransaccionesPage() {
   const qc = useQueryClient()
+  const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
   const [page, setPage] = useState(0)
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [modal, setModal] = useState<ModalState>(null)
@@ -428,14 +430,16 @@ export function TransaccionesPage() {
       if (filters.tipo) params.set('tipo', filters.tipo)
       if (filters.cuentaId) params.set('cuentaId', filters.cuentaId)
       if (filters.categoriaId) params.set('categoriaId', filters.categoriaId)
-      const { data } = await api.get(`/transacciones?${params.toString()}`)
+      const { data } = await api.get(`/clientes/${cid}/transacciones?${params.toString()}`)
       return data.data
     },
+    enabled: !!cid,
   })
 
   const { data: cuentas = [] } = useQuery<CuentaBancaria[]>({
-    queryKey: ['cuentas'],
-    queryFn: async () => (await api.get('/cuentas')).data.data,
+    queryKey: ['cuentas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/cuentas`)).data.data,
+    enabled: !!cid,
   })
 
   const { data: categorias = [] } = useQuery<Categoria[]>({
@@ -444,13 +448,15 @@ export function TransaccionesPage() {
   })
 
   const { data: personas = [] } = useQuery<Persona[]>({
-    queryKey: ['personas'],
-    queryFn: async () => (await api.get('/personas')).data.data,
+    queryKey: ['personas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/personas`)).data.data,
+    enabled: !!cid,
   })
 
   const { data: deudas = [] } = useQuery<Deuda[]>({
-    queryKey: ['deudas'],
-    queryFn: async () => (await api.get('/deudas')).data.data,
+    queryKey: ['deudas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/deudas`)).data.data,
+    enabled: !!cid,
   })
 
   const invalidate = () => {
@@ -476,7 +482,7 @@ export function TransaccionesPage() {
   }
 
   const createTx = useMutation({
-    mutationFn: (d: object) => api.post('/transacciones', d),
+    mutationFn: (d: object) => api.post(`/clientes/${cid}/transacciones`, d),
     onSuccess: () => { invalidate(); setModal(null); showToast('Transacción creada') },
     onError: (e: any) => {
       const msg = e?.response?.data?.error ?? e?.message ?? 'Error al crear la transacción'
@@ -485,7 +491,7 @@ export function TransaccionesPage() {
   })
 
   const updateTx = useMutation({
-    mutationFn: ({ id, d }: { id: string; d: object }) => api.put(`/transacciones/${id}`, d),
+    mutationFn: ({ id, d }: { id: string; d: object }) => api.patch(`/transacciones/${id}`, d),
     onSuccess: () => { invalidate(); setModal(null); showToast('Transacción actualizada') },
     onError: (e: any) => {
       const msg = e?.response?.data?.error ?? e?.message ?? 'Error al actualizar la transacción'

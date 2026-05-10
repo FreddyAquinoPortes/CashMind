@@ -10,6 +10,7 @@ import { TarjetasPage } from './pages/tarjetas/TarjetasPage'
 import { PersonasPage } from './pages/personas/PersonasPage'
 import { DeudasPage } from './pages/deudas/DeudasPage'
 import { EventosPage } from './pages/eventos/EventosPage'
+import { CombustiblePage } from './pages/combustible/CombustiblePage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore(s => s.user)
@@ -39,7 +40,7 @@ export default function App() {
         <Route path="personas"      element={<PersonasPage />} />
         <Route path="categorias"    element={<CategoriasPage />} />
         <Route path="eventos"       element={<EventosPage />} />
-        <Route path="combustible"   element={<ComingSoon title="Combustible" />} />
+        <Route path="combustible"   element={<CombustiblePage />} />
         <Route path="presupuestos"  element={<ComingSoon title="Presupuestos" />} />
         <Route path="proyecciones"  element={<ComingSoon title="Proyecciones" />} />
         <Route path="reportes"      element={<ComingSoon title="Reportes" />} />

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
+import { useAuthStore } from '../../store/auth.store'
 import type { Persona, TipoPersona } from '../../lib/types'
 import { PlusIcon, UserIcon, BuildingOfficeIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 
@@ -320,9 +321,11 @@ type ModalState =
 
 export function PersonasPage() {
   const qc = useQueryClient()
+  const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
   const { data: personas = [], isLoading } = useQuery<Persona[]>({
-    queryKey: ['personas'],
-    queryFn: async () => (await api.get('/personas')).data.data,
+    queryKey: ['personas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/personas`)).data.data,
+    enabled: !!cid,
   })
 
   const [toast, setToast] = useState<{ msg: string; type: 'success'|'error' }|null>(null)
@@ -333,7 +336,7 @@ export function PersonasPage() {
   const showToast = (msg: string, type: 'success'|'error' = 'success') => {
     setToast({ msg, type }); setTimeout(() => setToast(null), 3200)
   }
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['personas'] })
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['personas', cid] })
 
   const toPayload = (f: PForm) => ({
     tipo: f.tipo,
@@ -346,12 +349,12 @@ export function PersonasPage() {
   })
 
   const create = useMutation({
-    mutationFn: (d: object) => api.post('/personas', d),
+    mutationFn: (d: object) => api.post(`/clientes/${cid}/personas`, d),
     onSuccess: () => { invalidate(); closeModal(); showToast('Persona creada') },
     onError: (e: Error) => setModal(p => p ? { ...p, err: e.message } : p),
   })
   const update = useMutation({
-    mutationFn: ({ id, d }: { id: string; d: object }) => api.put(`/personas/${id}`, d),
+    mutationFn: ({ id, d }: { id: string; d: object }) => api.patch(`/personas/${id}`, d),
     onSuccess: () => { invalidate(); closeModal(); showToast('Actualizado') },
     onError: (e: Error) => setModal(p => p ? { ...p, err: e.message } : p),
   })

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
+import { useAuthStore } from '../../store/auth.store'
 import type { CuentaBancaria, TipoCuenta } from '../../lib/types'
 import { BANCOS_RD, TIPOS_CUENTA, MONEDAS } from '../../lib/constants'
 import { PlusIcon, BuildingLibraryIcon } from '@heroicons/react/24/outline'
@@ -132,9 +133,11 @@ type ModalState =
 
 export function CuentasPage() {
   const qc = useQueryClient()
+  const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
   const { data: cuentas = [], isLoading } = useQuery<CuentaBancaria[]>({
-    queryKey: ['cuentas'],
-    queryFn: async () => (await api.get('/cuentas')).data.data,
+    queryKey: ['cuentas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/cuentas`)).data.data,
+    enabled: !!cid,
   })
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -143,15 +146,15 @@ export function CuentasPage() {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type }); setTimeout(() => setToast(null), 3000)
   }
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['cuentas'] })
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['cuentas', cid] })
 
   const create = useMutation({
-    mutationFn: (d: object) => api.post('/cuentas', d),
+    mutationFn: (d: object) => api.post(`/clientes/${cid}/cuentas`, d),
     onSuccess: () => { invalidate(); closeModal(); showToast('Cuenta creada') },
     onError: (e: Error) => { setModal(p => p ? { ...p, error: e.message } : p); showToast(e.message, 'error') },
   })
   const update = useMutation({
-    mutationFn: ({ id, d }: { id: string; d: object }) => api.put(`/cuentas/${id}`, d),
+    mutationFn: ({ id, d }: { id: string; d: object }) => api.patch(`/cuentas/${id}`, d),
     onSuccess: () => { invalidate(); closeModal(); showToast('Cuenta actualizada') },
     onError: (e: Error) => { setModal(p => p ? { ...p, error: e.message } : p); showToast(e.message, 'error') },
   })

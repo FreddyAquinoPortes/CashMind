@@ -3,18 +3,19 @@ import cors from 'cors'
 import helmet from 'helmet'
 import compression from 'compression'
 import rateLimit from 'express-rate-limit'
-import { authRouter } from './modules/auth/auth.router'
-import { clientesRouter } from './modules/clientes/clientes.router'
-import { cuentasRouter } from './modules/cuentas/cuentas.router'
-import { tarjetasRouter } from './modules/tarjetas/tarjetas.router'
-import { deudasRouter } from './modules/deudas/deudas.router'
+import { authRouter }         from './modules/auth/auth.router'
+import { clientesRouter }     from './modules/clientes/clientes.router'
+import { categoriasRouter }   from './modules/categorias/categorias.router'
+import { cuentasRouter }      from './modules/cuentas/cuentas.router'
+import { tarjetasRouter }     from './modules/tarjetas/tarjetas.router'
+import { personasRouter }     from './modules/personas/personas.router'
 import { transaccionesRouter } from './modules/transacciones/transacciones.router'
-import categoriasRouter from './modules/categorias/categorias.router'
-import { personasRouter } from './modules/personas/personas.router'
-import { eventosRouter } from './modules/eventos/eventos.router'
-import importacionRouter from './modules/importacion/importacion.router'
-import { errorHandler } from './middleware/error.middleware'
-import { requestLogger } from './middleware/logger.middleware'
+import { deudasRouter }       from './modules/deudas/deudas.router'
+import { eventosRouter }      from './modules/eventos/eventos.router'
+import { dashboardRouter }    from './modules/dashboard/dashboard.router'
+import { combustibleRouter }  from './modules/combustible/combustible.router'
+import { errorHandler }       from './middleware/error.middleware'
+import { requestLogger }      from './middleware/logger.middleware'
 
 export function createApp() {
   const app = express()
@@ -32,16 +33,20 @@ export function createApp() {
     res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.1.0' })
   })
 
+  // Auth
   app.use('/api/auth', authRouter)
-  app.use('/api/clientes', clientesRouter)
-  app.use('/api/cuentas', cuentasRouter)
-  app.use('/api/tarjetas', tarjetasRouter)
-  app.use('/api/deudas', deudasRouter)
-  app.use('/api/transacciones', transaccionesRouter)
-  app.use('/api/categorias', categoriasRouter)
-  app.use('/api/personas', personasRouter)
-  app.use('/api/eventos', eventosRouter)
-  app.use('/api/importacion', importacionRouter)
+
+  // Todos los demás routers montan rutas completas bajo /api
+  app.use('/api', clientesRouter)
+  app.use('/api', categoriasRouter)
+  app.use('/api', cuentasRouter)
+  app.use('/api', tarjetasRouter)
+  app.use('/api', personasRouter)
+  app.use('/api', transaccionesRouter)
+  app.use('/api', deudasRouter)
+  app.use('/api', eventosRouter)
+  app.use('/api', dashboardRouter)
+  app.use('/api', combustibleRouter)
 
   app.use(errorHandler)
 

@@ -1,47 +1,47 @@
 import { z } from 'zod'
 import { prisma } from '../../shared/prisma'
 
-const CuentaSchema = z.object({
-  alias:   z.string().min(1, 'El nombre es requerido').max(80),
-  banco:   z.string().min(1, 'Selecciona un banco'),
-  numero:  z.string().min(1, 'El número de cuenta es requerido').max(30),
-  tipo:    z.enum(['CORRIENTE', 'AHORRO', 'INVERSION', 'OTRO']),
-  moneda:  z.string().default('DOP'),
-  saldo:   z.coerce.number().default(0),
-  activa:  z.boolean().default(true),
+const cuentaSchema = z.object({
+  banco: z.string().min(1),
+  numero: z.string().min(1),
+  alias: z.string().optional(),
+  tipo: z.enum(['CORRIENTE', 'AHORRO', 'INVERSION', 'OTRO']),
+  moneda: z.string().default('DOP'),
+  saldo: z.number().default(0),
+  activa: z.boolean().default(true),
 })
 
-export type CuentaInput = z.infer<typeof CuentaSchema>
-
 export class CuentasService {
-  async listar(clienteId: string) {
-    return prisma.cuentaBancaria.findMany({
-      where: { clienteId },
-      orderBy: { createdAt: 'desc' },
-    })
+  async list(clienteId: string) {
+    return prisma.cuentaBancaria.findMany({ where: { clienteId }, orderBy: { createdAt: 'asc' } })
   }
 
-  async obtener(id: string, clienteId: string) {
-    const cuenta = await prisma.cuentaBancaria.findFirst({ where: { id, clienteId } })
-    if (!cuenta) throw Object.assign(new Error('Cuenta no encontrada'), { status: 404 })
-    return cuenta
-  }
-
-  async crear(clienteId: string, body: unknown) {
-    const data = CuentaSchema.parse(body)
+  async create(clienteId: string, body: unknown) {
+    const d = cuentaSchema.parse(body)
     return prisma.cuentaBancaria.create({
-      data: { ...data, clienteId },
+      data: { banco: d.banco, numero: d.numero, alias: d.alias ?? null, tipo: d.tipo, moneda: d.moneda, saldo: d.saldo, activa: d.activa, clienteId },
     })
   }
 
-  async actualizar(id: string, clienteId: string, body: unknown) {
-    await this.obtener(id, clienteId)
-    const data = CuentaSchema.partial().parse(body)
-    return prisma.cuentaBancaria.update({ where: { id }, data })
+  async update(id: string, body: unknown) {
+    const d = cuentaSchema.partial().parse(body)
+    return prisma.cuentaBancaria.update({
+      where: { id },
+      data: {
+        ...(d.banco !== undefined && { banco: d.banco }),
+        ...(d.numero !== undefined && { numero: d.numero }),
+        ...(d.alias !== undefined && { alias: d.alias ?? null }),
+        ...(d.tipo !== undefined && { tipo: d.tipo }),
+        ...(d.moneda !== undefined && { moneda: d.moneda }),
+        ...(d.saldo !== undefined && { saldo: d.saldo }),
+        ...(d.activa !== undefined && { activa: d.activa }),
+      },
+    })
   }
 
-  async eliminar(id: string, clienteId: string) {
-    await this.obtener(id, clienteId)
+  async remove(id: string) {
+    const count = await prisma.transaccion.count({ where: { cuentaId: id } })
+    if (count > 0) throw Object.assign(new Error('La cuenta tiene transacciones asociadas'), { status: 409 })
     return prisma.cuentaBancaria.delete({ where: { id } })
   }
 }

@@ -1,62 +1,60 @@
 import { z } from 'zod'
 import { prisma } from '../../shared/prisma'
 
-const TarjetaSchema = z.object({
-  alias:            z.string().min(1, 'El nombre es requerido').max(80),
-  banco:            z.string().min(1, 'Selecciona un banco'),
-  ultimosCuatro:   z.string().length(4, 'Ingresa los últimos 4 dígitos').regex(/^\d{4}$/),
-  franquicia:       z.enum(['VISA', 'MASTERCARD', 'AMEX', 'DISCOVER']).optional().nullable(),
-  tipoTarjeta:      z.enum(['CREDITO', 'DEBITO']).optional().nullable(),
-  categoriaTarjeta: z.enum(['STANDARD', 'GOLD', 'PLATINUM', 'BLACK']).optional().nullable(),
-  limite:           z.coerce.number().min(0).default(0),
-  saldoActual:      z.coerce.number().min(0).default(0),
-  tasaInteres:      z.coerce.number().min(0).max(100).default(0),
-  diaCorte:         z.coerce.number().int().min(1).max(31).default(1),
-  diaPago:          z.coerce.number().int().min(1).max(31).default(15),
-  moneda:           z.string().default('DOP'),
-  activa:           z.boolean().default(true),
+const tarjetaSchema = z.object({
+  banco: z.string().min(1),
+  alias: z.string().optional(),
+  ultimosCuatro: z.string().length(4),
+  limite: z.number().positive(),
+  saldoActual: z.number().default(0),
+  tasaInteres: z.number().min(0).default(0),
+  tasaMora: z.number().min(0).default(0),
+  diaCorte: z.number().int().min(1).max(31),
+  diaPago: z.number().int().min(1).max(31),
+  penalidadSobregiro: z.number().min(0).default(0),
+  moneda: z.string().default('DOP'),
+  activa: z.boolean().default(true),
 })
 
-export type TarjetaInput = z.infer<typeof TarjetaSchema>
-
 export class TarjetasService {
-  private withUtil(t: { limite: { toNumber(): number }; saldoActual: { toNumber(): number } }) {
-    const limite = t.limite.toNumber()
-    const saldo  = t.saldoActual.toNumber()
-    return {
+  async list(clienteId: string) {
+    const tarjetas = await prisma.tarjetaCredito.findMany({ where: { clienteId }, orderBy: { createdAt: 'asc' } })
+    return tarjetas.map(t => ({
       ...t,
-      utilizacion: limite > 0 ? Math.round(saldo / limite * 100) : 0,
-      disponible:  Math.max(0, limite - saldo),
-    }
+      disponible: Number(t.limite) - Number(t.saldoActual),
+      sobregiro: Math.max(0, Number(t.saldoActual) - Number(t.limite)),
+    }))
   }
 
-  async listar(clienteId: string) {
-    const rows = await prisma.tarjetaCredito.findMany({
-      where: { clienteId },
-      orderBy: { createdAt: 'desc' },
+  async create(clienteId: string, body: unknown) {
+    const d = tarjetaSchema.parse(body)
+    return prisma.tarjetaCredito.create({
+      data: { clienteId, banco: d.banco, alias: d.alias ?? null, ultimosCuatro: d.ultimosCuatro, limite: d.limite, saldoActual: d.saldoActual, tasaInteres: d.tasaInteres, tasaMora: d.tasaMora, diaCorte: d.diaCorte, diaPago: d.diaPago, penalidadSobregiro: d.penalidadSobregiro, moneda: d.moneda, activa: d.activa },
     })
-    return rows.map(t => this.withUtil(t))
   }
 
-  async obtener(id: string, clienteId: string) {
-    const t = await prisma.tarjetaCredito.findFirst({ where: { id, clienteId } })
-    if (!t) throw Object.assign(new Error('Tarjeta no encontrada'), { status: 404 })
-    return this.withUtil(t)
+  async update(id: string, body: unknown) {
+    const d = tarjetaSchema.partial().parse(body)
+    return prisma.tarjetaCredito.update({
+      where: { id },
+      data: {
+        ...(d.banco !== undefined && { banco: d.banco }),
+        ...(d.alias !== undefined && { alias: d.alias ?? null }),
+        ...(d.ultimosCuatro !== undefined && { ultimosCuatro: d.ultimosCuatro }),
+        ...(d.limite !== undefined && { limite: d.limite }),
+        ...(d.saldoActual !== undefined && { saldoActual: d.saldoActual }),
+        ...(d.tasaInteres !== undefined && { tasaInteres: d.tasaInteres }),
+        ...(d.tasaMora !== undefined && { tasaMora: d.tasaMora }),
+        ...(d.diaCorte !== undefined && { diaCorte: d.diaCorte }),
+        ...(d.diaPago !== undefined && { diaPago: d.diaPago }),
+        ...(d.penalidadSobregiro !== undefined && { penalidadSobregiro: d.penalidadSobregiro }),
+        ...(d.moneda !== undefined && { moneda: d.moneda }),
+        ...(d.activa !== undefined && { activa: d.activa }),
+      },
+    })
   }
 
-  async crear(clienteId: string, body: unknown) {
-    const data = TarjetaSchema.parse(body)
-    return prisma.tarjetaCredito.create({ data: { ...data, clienteId } as any })
-  }
-
-  async actualizar(id: string, clienteId: string, body: unknown) {
-    await this.obtener(id, clienteId)
-    const data = TarjetaSchema.partial().parse(body)
-    return prisma.tarjetaCredito.update({ where: { id }, data: data as any })
-  }
-
-  async eliminar(id: string, clienteId: string) {
-    await this.obtener(id, clienteId)
+  async remove(id: string) {
     return prisma.tarjetaCredito.delete({ where: { id } })
   }
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
+import { useAuthStore } from '../../store/auth.store'
 import type { Evento, TipoEvento, EstadoEvento, TipoRecurrencia, CuentaBancaria, Persona } from '../../lib/types'
 import { PlusIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 
@@ -401,6 +402,7 @@ const toPayload = (f: EventoForm) => ({
 
 export function EventosPage() {
   const qc = useQueryClient()
+  const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
   const today = new Date()
   const [year,  setYear]  = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
@@ -416,27 +418,30 @@ export function EventosPage() {
   const mesStr = `${year}-${String(month + 1).padStart(2, '0')}`
 
   const { data: eventos = [], isLoading } = useQuery<Evento[]>({
-    queryKey: ['eventos', mesStr],
-    queryFn: async () => (await api.get(`/eventos?mes=${mesStr}`)).data.data,
+    queryKey: ['eventos', mesStr, cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/eventos?mes=${mesStr}`)).data.data,
+    enabled: !!cid,
   })
   const { data: cuentas = [] } = useQuery<CuentaBancaria[]>({
-    queryKey: ['cuentas'],
-    queryFn: async () => (await api.get('/cuentas')).data.data,
+    queryKey: ['cuentas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/cuentas`)).data.data,
+    enabled: !!cid,
   })
   const { data: personas = [] } = useQuery<Persona[]>({
-    queryKey: ['personas'],
-    queryFn: async () => (await api.get('/personas')).data.data,
+    queryKey: ['personas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/personas`)).data.data,
+    enabled: !!cid,
   })
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['eventos'] })
 
   const create = useMutation({
-    mutationFn: (d: object) => api.post('/eventos', d),
+    mutationFn: (d: object) => api.post(`/clientes/${cid}/eventos`, d),
     onSuccess: () => { invalidate(); setModal(null); showToast('Evento creado') },
     onError: (e: any) => { const m = e?.response?.data?.error ?? e?.message; setModal(p => p ? { ...p, error: m } : p); showToast(m, 'error') },
   })
   const update = useMutation({
-    mutationFn: ({ id, d }: { id: string; d: object }) => api.put(`/eventos/${id}`, d),
+    mutationFn: ({ id, d }: { id: string; d: object }) => api.patch(`/eventos/${id}`, d),
     onSuccess: () => { invalidate(); setModal(null); showToast('Evento actualizado') },
     onError: (e: any) => { const m = e?.response?.data?.error ?? e?.message; setModal(p => p ? { ...p, error: m } : p); showToast(m, 'error') },
   })
@@ -594,7 +599,7 @@ export function EventosPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className={`text-sm font-semibold ${ESTADO_CONFIG[ev.estado].color}`}>{ev.nombre}</p>
-                        <p className="text-xs text-text-muted">{fmtDate(date.toISOString())}</p>
+                        <p className="text-xs text-text-muted">{date ? fmtDate(date.toISOString()) : ''}</p>
                         {ev.recurrente && (
                           <p className="text-xs text-text-muted">🔁 {ev.tipoRecurrencia?.toLowerCase()}</p>
                         )}

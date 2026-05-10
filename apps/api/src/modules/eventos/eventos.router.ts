@@ -1,59 +1,43 @@
 import { Router } from 'express'
 import { requireAuth, AuthRequest } from '../../middleware/auth.middleware'
+import { requireCliente } from '../../shared/cliente.helper'
 import { EventosService } from './eventos.service'
-import { prisma } from '../../shared/prisma'
 
 export const eventosRouter = Router()
 const svc = new EventosService()
 
-async function resolveClienteId(userId: string): Promise<string> {
-  const cliente = await prisma.cliente.findFirst({ where: { usuarioId: userId } })
-  if (!cliente) throw Object.assign(new Error('Cliente no encontrado'), { status: 404 })
-  return cliente.id
-}
-
-eventosRouter.use(requireAuth)
-
-eventosRouter.get('/', async (req: AuthRequest, res, next) => {
+eventosRouter.get('/clientes/:clienteId/eventos', requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const clienteId = await resolveClienteId(req.user!.id)
-    const mes = req.query['mes'] as string | undefined
-    res.json({ data: await svc.listar(clienteId, mes) })
-  } catch (e) { next(e) }
+    await requireCliente(req.params.clienteId!, req.user!.id)
+    res.json({ data: await svc.listar(req.params.clienteId!, req.query.mes as string | undefined) })
+  } catch (err) { next(err) }
 })
 
-eventosRouter.get('/:id', async (req: AuthRequest, res, next) => {
+eventosRouter.post('/clientes/:clienteId/eventos', requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const clienteId = await resolveClienteId(req.user!.id)
-    res.json({ data: await svc.obtener(req.params['id']!, clienteId) })
-  } catch (e) { next(e) }
+    await requireCliente(req.params.clienteId!, req.user!.id)
+    res.status(201).json({ data: await svc.crear(req.params.clienteId!, req.body) })
+  } catch (err) { next(err) }
 })
 
-eventosRouter.post('/', async (req: AuthRequest, res, next) => {
+eventosRouter.patch('/eventos/:id', requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const clienteId = await resolveClienteId(req.user!.id)
-    res.status(201).json({ data: await svc.crear(clienteId, req.body) })
-  } catch (e) { next(e) }
+    const clienteId = req.query.clienteId as string || ''
+    res.json({ data: await svc.actualizar(req.params.id!, clienteId, req.body) })
+  } catch (err) { next(err) }
 })
 
-eventosRouter.put('/:id', async (req: AuthRequest, res, next) => {
+eventosRouter.delete('/eventos/:id', requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const clienteId = await resolveClienteId(req.user!.id)
-    res.json({ data: await svc.actualizar(req.params['id']!, clienteId, req.body) })
-  } catch (e) { next(e) }
-})
-
-eventosRouter.delete('/:id', async (req: AuthRequest, res, next) => {
-  try {
-    const clienteId = await resolveClienteId(req.user!.id)
-    await svc.eliminar(req.params['id']!, clienteId)
+    const clienteId = req.query.clienteId as string || ''
+    await svc.eliminar(req.params.id!, clienteId)
     res.json({ data: { ok: true } })
-  } catch (e) { next(e) }
+  } catch (err) { next(err) }
 })
 
-eventosRouter.post('/:id/ejecutar', async (req: AuthRequest, res, next) => {
+eventosRouter.post('/eventos/:id/ejecutar', requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const clienteId = await resolveClienteId(req.user!.id)
-    res.json({ data: await svc.ejecutar(req.params['id']!, clienteId, req.body) })
-  } catch (e) { next(e) }
+    const clienteId = req.body.clienteId as string || ''
+    res.json({ data: await svc.ejecutar(req.params.id!, clienteId, req.body) })
+  } catch (err) { next(err) }
 })

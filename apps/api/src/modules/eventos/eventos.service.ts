@@ -29,10 +29,10 @@ const EventoBaseSchema = z.object({
 const EventoUpdateSchema = EventoBaseSchema.partial()
 
 const EjecutarSchema = z.object({
-  cuentaId:      z.string().optional().nullable(),
-  categoriaId:   z.string().optional().nullable(),
+  cuentaId:       z.string().optional().nullable(),
+  categoriaId:    z.string().optional().nullable(),
   subcategoriaId: z.string().optional().nullable(),
-  notas:         z.string().optional().nullable(),
+  notas:          z.string().optional().nullable(),
 })
 
 export class EventosService {
@@ -42,11 +42,11 @@ export class EventosService {
     if (mes) {
       // mes = "2026-05"  → traer eventos del mes Y recurrentes
       const [y, m] = mes.split('-').map(Number)
-      const inicio = new Date(y, m - 1, 1)
-      const fin    = new Date(y, m, 0, 23, 59, 59)
+      const inicio = new Date(y!, m! - 1, 1)
+      const fin    = new Date(y!, m!, 0, 23, 59, 59)
       where.OR = [
-        { fecha: { gte: inicio, lte: fin } },       // eventos del mes
-        { recurrente: true },                         // todos los recurrentes (frontend los expande)
+        { fecha: { gte: inicio, lte: fin } },
+        { recurrente: true },
       ]
     }
 
