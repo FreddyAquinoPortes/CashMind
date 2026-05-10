@@ -44,6 +44,25 @@ export class TransaccionesService {
 
   async create(clienteId: string, body: unknown) {
     const data = transaccionSchema.parse(body)
+
+    // Prevent negative balance on bank accounts (only credit cards/debts can go negative)
+    if (data.cuentaId && data.tipo === 'GASTO') {
+      const cuenta = await prisma.cuentaBancaria.findUnique({ where: { id: data.cuentaId } })
+      if (cuenta && ['CORRIENTE', 'AHORRO', 'INVERSION', 'OTRO'].includes(cuenta.tipo)) {
+        const saldo = Number(cuenta.saldo)
+        const monto = Number(data.monto)
+        if (saldo < monto) {
+          throw Object.assign(
+            new Error(
+              `Saldo insuficiente. La cuenta "${cuenta.alias ?? cuenta.banco}" tiene RD$${saldo.toFixed(2)} disponibles. ` +
+              `Solo las tarjetas de crédito y deudas pueden tener balance negativo.`
+            ),
+            { status: 422 }
+          )
+        }
+      }
+    }
+
     const tx = await prisma.transaccion.create({
       data: {
         clienteId,

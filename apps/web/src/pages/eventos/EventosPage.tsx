@@ -2,11 +2,12 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
-import type { Evento, TipoEvento, EstadoEvento, TipoRecurrencia, CuentaBancaria, Persona, Categoria } from '../../lib/types'
+import type { Evento, TipoEvento, EstadoEvento, TipoRecurrencia, CuentaBancaria, Persona, Categoria, Subcategoria } from '../../lib/types'
 import {
   PlusIcon, ChevronLeftIcon, ChevronRightIcon, CalendarDaysIcon,
   ChevronDownIcon, BookmarkIcon,
 } from '@heroicons/react/24/outline'
+import { Icon } from '@iconify/react'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const TIPO_CONFIG: Record<TipoEvento, { label: string; color: string; dot: string; icon: string }> = {
@@ -152,6 +153,161 @@ function Modal({ title, onClose, children, wide }: {
         </div>
         <div className="overflow-y-auto flex-1 px-6 pb-6">{children}</div>
       </div>
+    </div>
+  )
+}
+
+// ── CategoriaSelect ────────────────────────────────────────────────────────
+function CategoriaSelect({ value, onChange, categorias, placeholder = '— Sin categoría —' }: {
+  value: string; onChange(id: string): void
+  categorias: Categoria[]; placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  const selected = categorias.find(c => c.id === value)
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(p => !p)}
+        className="input w-full text-left flex items-center gap-2"
+      >
+        {selected ? (
+          <>
+            {selected.icono && (
+              <Icon
+                icon={selected.icono.includes(':') ? selected.icono : `tabler:${selected.icono}`}
+                className="w-4 h-4 flex-shrink-0"
+                style={{ color: selected.color ?? '#22c55e' }}
+              />
+            )}
+            <span className="text-text-primary flex-1 truncate">{selected.nombre}</span>
+          </>
+        ) : (
+          <span className="text-text-muted flex-1">{placeholder}</span>
+        )}
+        <ChevronDownIcon className={`w-4 h-4 text-text-muted flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute z-[600] top-full mt-1 left-0 right-0 bg-surface border border-border rounded-xl shadow-2xl py-1 max-h-52 overflow-y-auto">
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false) }}
+            className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 transition-colors ${!value ? 'text-primary font-medium' : 'text-text-muted'}`}
+          >
+            {placeholder}
+          </button>
+          {categorias.map(c => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => { onChange(c.id); setOpen(false) }}
+              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2.5 hover:bg-white/5 transition-colors
+                ${value === c.id ? 'text-primary font-medium bg-primary/5' : 'text-text-secondary'}`}
+            >
+              {c.icono ? (
+                <Icon
+                  icon={c.icono.includes(':') ? c.icono : `tabler:${c.icono}`}
+                  className="w-4 h-4 flex-shrink-0"
+                  style={{ color: c.color ?? '#22c55e' }}
+                />
+              ) : (
+                <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: c.color ?? '#22c55e' }} />
+              )}
+              <span className="truncate">{c.nombre}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SubcategoriaSelect({ value, onChange, subcategorias, disabled }: {
+  value: string; onChange(id: string): void
+  subcategorias: Subcategoria[]; disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  const selected = subcategorias.find(s => s.id === value)
+
+  if (disabled) return (
+    <div className="input opacity-40 flex items-center gap-2 cursor-not-allowed select-none">
+      <span className="text-text-muted text-sm">— Sin subcategoría —</span>
+    </div>
+  )
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(p => !p)}
+        className="input w-full text-left flex items-center gap-2"
+      >
+        {selected ? (
+          <>
+            {selected.icono && (
+              <Icon
+                icon={selected.icono.includes(':') ? selected.icono : `tabler:${selected.icono}`}
+                className="w-4 h-4 flex-shrink-0"
+                style={{ color: selected.color ?? '#94a3b8' }}
+              />
+            )}
+            <span className="text-text-primary flex-1 truncate">{selected.nombre}</span>
+          </>
+        ) : (
+          <span className="text-text-muted flex-1">— Sin subcategoría —</span>
+        )}
+        <ChevronDownIcon className={`w-4 h-4 text-text-muted flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute z-[600] top-full mt-1 left-0 right-0 bg-surface border border-border rounded-xl shadow-2xl py-1 max-h-44 overflow-y-auto">
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false) }}
+            className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 transition-colors ${!value ? 'text-primary font-medium' : 'text-text-muted'}`}
+          >
+            — Sin subcategoría —
+          </button>
+          {subcategorias.map(s => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => { onChange(s.id); setOpen(false) }}
+              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2.5 hover:bg-white/5 transition-colors
+                ${value === s.id ? 'text-primary font-medium bg-primary/5' : 'text-text-secondary'}`}
+            >
+              {s.icono ? (
+                <Icon
+                  icon={s.icono.includes(':') ? s.icono : `tabler:${s.icono}`}
+                  className="w-4 h-4 flex-shrink-0"
+                  style={{ color: s.color ?? '#94a3b8' }}
+                />
+              ) : (
+                <span className="w-2 h-2 rounded-full flex-shrink-0 ml-1" style={{ backgroundColor: s.color ?? '#94a3b8' }} />
+              )}
+              <span className="truncate">{s.nombre}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -705,22 +861,23 @@ function EventoFormPanel({ initial, personas, categorias, onSubmit, onClose, loa
 
       {/* Category */}
       <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
           Categoría
-          <select value={form.categoriaId} onChange={e => setForm(p => ({ ...p, categoriaId: e.target.value, subcategoriaId: '' }))} className="input">
-            <option value="">— Sin categoría —</option>
-            {categorias.map(c => <option key={c.id} value={c.id}>{c.icono ? `${c.icono} ` : ''}{c.nombre}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          <CategoriaSelect
+            value={form.categoriaId}
+            onChange={id => setForm(p => ({ ...p, categoriaId: id, subcategoriaId: '' }))}
+            categorias={categorias}
+          />
+        </div>
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
           Subcategoría
-          <select value={form.subcategoriaId} onChange={set('subcategoriaId')} className="input" disabled={!form.categoriaId}>
-            <option value="">— Sin subcategoría —</option>
-            {(categorias.find(c => c.id === form.categoriaId)?.subcategorias ?? []).map(s => (
-              <option key={s.id} value={s.id}>{s.nombre}</option>
-            ))}
-          </select>
-        </label>
+          <SubcategoriaSelect
+            value={form.subcategoriaId}
+            onChange={id => setForm(p => ({ ...p, subcategoriaId: id }))}
+            subcategorias={categorias.find(c => c.id === form.categoriaId)?.subcategorias ?? []}
+            disabled={!form.categoriaId}
+          />
+        </div>
       </div>
 
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
@@ -783,22 +940,23 @@ function EjecutarFormPanel({ evento, cuentas, categorias, onSubmit, onClose, loa
       </label>
 
       <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
           Categoría
-          <select value={categoriaId} onChange={e => { setCategoriaId(e.target.value); setSubcategoriaId('') }} className="input">
-            <option value="">— Sin categoría —</option>
-            {categorias.map(c => <option key={c.id} value={c.id}>{c.icono ? `${c.icono} ` : ''}{c.nombre}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          <CategoriaSelect
+            value={categoriaId}
+            onChange={id => { setCategoriaId(id); setSubcategoriaId('') }}
+            categorias={categorias}
+          />
+        </div>
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
           Subcategoría
-          <select value={subcategoriaId} onChange={e => setSubcategoriaId(e.target.value)} className="input" disabled={!categoriaId}>
-            <option value="">— Sin subcategoría —</option>
-            {(categorias.find(c => c.id === categoriaId)?.subcategorias ?? []).map(s => (
-              <option key={s.id} value={s.id}>{s.nombre}</option>
-            ))}
-          </select>
-        </label>
+          <SubcategoriaSelect
+            value={subcategoriaId}
+            onChange={setSubcategoriaId}
+            subcategorias={categorias.find(c => c.id === categoriaId)?.subcategorias ?? []}
+            disabled={!categoriaId}
+          />
+        </div>
       </div>
 
       <label className="flex flex-col gap-1 text-sm text-text-secondary">

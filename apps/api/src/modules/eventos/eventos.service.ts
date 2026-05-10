@@ -118,6 +118,27 @@ export class EventosService {
     const tipoTx = TIPO_TX[evento.tipo] ?? 'GASTO'
     const dir    = TIPO_TX_DIR[evento.tipo] ?? -1
 
+    // Validate balance for debit transactions on bank accounts
+    if (cuentaId && tipoTx === 'GASTO') {
+      const cuenta = await prisma.cuentaBancaria.findUnique({ where: { id: cuentaId } })
+      if (cuenta) {
+        const TIPOS_SIN_NEGATIVO = ['CORRIENTE', 'AHORRO', 'INVERSION', 'OTRO']
+        if (TIPOS_SIN_NEGATIVO.includes(cuenta.tipo)) {
+          const saldoActual = Number(cuenta.saldo)
+          const monto       = Number(evento.presupuestoEstimado)
+          if (saldoActual < monto) {
+            throw Object.assign(
+              new Error(
+                `Saldo insuficiente. La cuenta "${cuenta.alias ?? cuenta.banco}" tiene RD$${saldoActual.toFixed(2)} y el evento requiere RD$${monto.toFixed(2)}. ` +
+                `Solo las tarjetas de crédito y deudas pueden tener balance negativo.`
+              ),
+              { status: 422 }
+            )
+          }
+        }
+      }
+    }
+
     return prisma.$transaction(async (tx) => {
       // 1. Create transaction
       const transaccion = await tx.transaccion.create({
