@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { MapContainer, TileLayer, Marker, Polyline, useMapEvents } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Polyline, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { api } from '../../lib/api'
@@ -80,6 +80,16 @@ async function getRoute(from: LatLng, to: LatLng): Promise<{ distanceKm: number;
     const coords: LatLng[] = route.geometry.coordinates.map(([lon, lat]: [number, number]) => [lat, lon])
     return { distanceKm, coords }
   } catch { return null }
+}
+
+// ── Map Auto-Size (fixes Leaflet height calc inside modals) ───────────────
+function MapResizer() {
+  const map = useMap()
+  useEffect(() => {
+    const t = setTimeout(() => map.invalidateSize(), 150)
+    return () => clearTimeout(t)
+  }, [map])
+  return null
 }
 
 // ── Map Click Handler ──────────────────────────────────────────────────────
@@ -187,7 +197,8 @@ function RouteMapPicker({ onConfirm }: { onConfirm(km: number, nombre: string): 
 
       {/* Map */}
       <div className="rounded-xl overflow-hidden border border-border" style={{ height: 320, cursor: placing ? 'crosshair' : 'default' }}>
-        <MapContainer center={center} zoom={8} style={{ height: '100%', width: '100%' }} zoomControl>
+        <MapContainer center={center} zoom={8} style={{ height: '320px', width: '100%' }} zoomControl>
+          <MapResizer />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
           <MapClickHandler placing={placing} onPlace={handlePlace} />
           {posA && <Marker position={posA} icon={ICON_A} />}
@@ -276,71 +287,110 @@ function RutaForm({ initial, vehiculos, onSubmit, loading, onClose }: {
 }) {
   const [f, setF] = useState<RForm>(initial ?? EMPTY_R)
   const [showMap, setShowMap] = useState(false)
+  const mapSectionRef = useRef<HTMLDivElement>(null)
   const upd = (k: keyof RForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(p => ({ ...p, [k]: e.target.value }))
+
+  // Auto-scroll to map section when it opens
+  useEffect(() => {
+    if (showMap && mapSectionRef.current) {
+      setTimeout(() => {
+        mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }, 50)
+    }
+  }, [showMap])
 
   const kmMensual = f.distanciaKm && f.vecesPorSemana
     ? Number(f.distanciaKm) * Number(f.vecesPorSemana) * 4.33
     : 0
 
   return (
-    <>
-      <form onSubmit={e => { e.preventDefault(); onSubmit(f) }} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1 text-sm text-text-secondary">
-          Nombre de la ruta *
-          <input required value={f.nombre} onChange={upd('nombre')} className="input" placeholder="Ej. Baní → Capital (ida y vuelta)" />
-        </div>
+    <form onSubmit={e => { e.preventDefault(); onSubmit(f) }} className="flex flex-col gap-4">
 
+      {/* ── Campos principales ── */}
+      <div className="flex flex-col gap-1 text-sm text-text-secondary">
+        Nombre de la ruta *
+        <input required value={f.nombre} onChange={upd('nombre')} className="input"
+          placeholder="Ej. Baní → Capital (ida y vuelta)" />
+      </div>
+
+      <div className="flex flex-col gap-1 text-sm text-text-secondary">
+        Vehículo
+        <select value={f.vehiculoId} onChange={upd('vehiculoId')} className="input">
+          <option value="">Sin vehículo</option>
+          {vehiculos.map(v => <option key={v.id} value={v.id}>{v.marca} {v.modelo} {v.ano}</option>)}
+        </select>
+      </div>
+
+      {/* ── Distancia + toggle mapa ── */}
+      <div className="flex flex-col gap-2 text-sm text-text-secondary">
+        <div className="flex items-center justify-between">
+          <span>Distancia (km) *</span>
+          <button
+            type="button"
+            onClick={() => setShowMap(p => !p)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors
+              ${showMap
+                ? 'border-primary bg-primary text-white'
+                : 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 hover:border-primary'}`}>
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+            {showMap ? 'Cerrar mapa' : 'Calcular con mapa'}
+          </button>
+        </div>
+        <input
+          required type="number" step="0.1" min={0.1}
+          value={f.distanciaKm} onChange={upd('distanciaKm')}
+          className="input" placeholder="125"
+        />
+      </div>
+
+      {/* ── Mapa inline (sin modal anidado) ── */}
+      {showMap && (
+        <div ref={mapSectionRef} className="border border-border rounded-xl overflow-hidden bg-background">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-surface">
+            <span className="text-xs font-medium text-text-secondary">🗺️ Selecciona origen y destino</span>
+            <button type="button" onClick={() => setShowMap(false)}
+              className="text-text-muted hover:text-text-primary text-sm leading-none">&times;</button>
+          </div>
+          <div className="p-4">
+            <RouteMapPicker onConfirm={(km, nombre) => {
+              setF(p => ({ ...p, distanciaKm: km.toFixed(1), nombre: p.nombre || nombre }))
+              setShowMap(false)
+            }} />
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1 text-sm text-text-secondary">
-          Vehículo
-          <select value={f.vehiculoId} onChange={upd('vehiculoId')} className="input">
-            <option value="">Sin vehículo</option>
-            {vehiculos.map(v => <option key={v.id} value={v.id}>{v.marca} {v.modelo} {v.ano}</option>)}
+          Veces/semana *
+          <select value={f.vecesPorSemana} onChange={upd('vecesPorSemana')} className="input">
+            {[1,2,3,4,5,6,7].map(n => <option key={n} value={n}>{n} × /semana</option>)}
           </select>
         </div>
-
         <div className="flex flex-col gap-1 text-sm text-text-secondary">
-          <div className="flex items-center justify-between">
-            Distancia (km) *
-            <button type="button" onClick={() => setShowMap(true)}
-              className="text-xs text-primary hover:underline">🗺️ Calcular con mapa</button>
-          </div>
-          <input required type="number" step="0.1" min={0.1} value={f.distanciaKm} onChange={upd('distanciaKm')} className="input" placeholder="125" />
+          % propio
+          <input type="number" min={0} max={100} value={f.porcentajePropio}
+            onChange={upd('porcentajePropio')} className="input" />
         </div>
+      </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1 text-sm text-text-secondary">
-            Veces/semana *
-            <select value={f.vecesPorSemana} onChange={upd('vecesPorSemana')} className="input">
-              {[1,2,3,4,5,6,7].map(n => <option key={n} value={n}>{n} × /semana</option>)}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1 text-sm text-text-secondary">
-            % propio
-            <input type="number" min={0} max={100} value={f.porcentajePropio} onChange={upd('porcentajePropio')} className="input" />
-          </div>
-        </div>
-
-        {kmMensual > 0 && (
-          <p className="text-xs text-text-muted bg-surface-elevated rounded-lg px-3 py-2">
-            📊 Estimado: <strong>{fmtDec(kmMensual, 0)} km/mes</strong> · {fmtDec(kmMensual * Number(f.porcentajePropio) / 100, 0)} km neto tuyo
-          </p>
-        )}
-
-        <div className="flex gap-2 justify-end">
-          <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
-          <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Guardando…' : 'Guardar'}</button>
-        </div>
-      </form>
-
-      {showMap && (
-        <Modal title="🗺️ Calcular distancia con mapa" onClose={() => setShowMap(false)} wide>
-          <RouteMapPicker onConfirm={(km, nombre) => {
-            setF(p => ({ ...p, distanciaKm: fmtDec(km, 1), nombre: p.nombre || nombre }))
-            setShowMap(false)
-          }} />
-        </Modal>
+      {kmMensual > 0 && (
+        <p className="text-xs text-text-muted bg-surface-elevated rounded-lg px-3 py-2">
+          📊 Estimado: <strong>{fmtDec(kmMensual, 0)} km/mes</strong>
+          {' · '}{fmtDec(kmMensual * Number(f.porcentajePropio) / 100, 0)} km neto tuyo
+        </p>
       )}
-    </>
+
+      <div className="flex gap-2 justify-end pt-1">
+        <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
+        <button type="submit" disabled={loading} className="btn-primary">
+          {loading ? 'Guardando…' : 'Guardar'}
+        </button>
+      </div>
+    </form>
   )
 }
 
