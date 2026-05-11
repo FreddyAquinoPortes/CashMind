@@ -93,6 +93,17 @@ enum EstadoPlan {
   ARCHIVADO
 }
 
+enum EstadoPresupuesto {
+  BORRADOR
+  ACTIVO
+  CERRADO
+}
+
+enum TipoLineaPresupuesto {
+  INGRESO
+  GASTO
+}
+
 // =================== USUARIOS Y CLIENTES ===================
 model Usuario {
   id               String    @id @default(cuid())
@@ -406,20 +417,59 @@ model PrecioCombustible {
 
 // =================== PRESUPUESTOS Y PLANES ===================
 model Presupuesto {
-  id            String                  @id @default(cuid())
-  clienteId     String
-  cliente       Cliente                 @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  nombre        String
-  fechaInicio   DateTime
-  fechaFin      DateTime
-  asignaciones  AsignacionPresupuesto[]
-  createdAt     DateTime                @default(now())
+  id          String               @id @default(cuid())
+  clienteId   String
+  cliente     Cliente              @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nombre      String
+  fechaInicio DateTime
+  fechaFin    DateTime
+  estado      EstadoPresupuesto    @default(BORRADOR)
+  notas       String?
+  lineas      LineaPresupuesto[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([clienteId])
 }
 
+model LineaPresupuesto {
+  id             String               @id @default(cuid())
+  presupuestoId  String
+  presupuesto    Presupuesto          @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
+  tipo           TipoLineaPresupuesto
+  concepto       String
+  categoriaId    String?
+  subcategoriaId String?
+  montoPlaneado  Decimal              @db.Decimal(15, 2)
+  notas          String?
+  orden          Int                  @default(0)
+  eventoId       String?
+  deudaId        String?
+  rutaId         String?
+  ejecuciones    EjecucionLinea[]
+  createdAt      DateTime             @default(now())
+
+  @@index([presupuestoId])
+}
+
+model EjecucionLinea {
+  id             String           @id @default(cuid())
+  lineaId        String
+  linea          LineaPresupuesto @relation(fields: [lineaId], references: [id], onDelete: Cascade)
+  montoEjecutado Decimal          @db.Decimal(15, 2)
+  fecha          DateTime
+  notas          String?
+  eventoId       String?
+  transaccionId  String?
+  createdAt      DateTime         @default(now())
+
+  @@index([lineaId])
+}
+
+// Legacy — kept for backwards compatibility, no longer used by the budget module
 model AsignacionPresupuesto {
   id             String       @id @default(cuid())
   presupuestoId  String
-  presupuesto    Presupuesto  @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
   subcategoriaId String
   subcategoria   Subcategoria @relation(fields: [subcategoriaId], references: [id])
   montoAsignado  Decimal      @db.Decimal(15, 2)
