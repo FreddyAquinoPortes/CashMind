@@ -9,10 +9,11 @@ import {
 } from '@heroicons/react/24/outline'
 import { Icon } from '@iconify/react'
 import { IconPicker, suggestIcon } from '../../components/ui/IconPicker'
+import { useAuthStore } from '../../store/auth.store'
 
 // ── API helpers ────────────────────────────────────────────────────────────
-const fetchCategorias = async (): Promise<Categoria[]> => {
-  const { data } = await api.get('/categorias')
+const fetchCategorias = async (clienteId?: string): Promise<Categoria[]> => {
+  const { data } = await api.get('/categorias', { params: clienteId ? { clienteId } : {} })
   return data.data
 }
 
@@ -487,9 +488,11 @@ function CategoriaRow({
 // ── Main page ─────────────────────────────────────────────────────────────
 export function CategoriasPage() {
   const qc = useQueryClient()
+  const clienteId = useAuthStore(s => s.clienteActivo?.id)
+
   const { data: categorias = [], isLoading } = useQuery({
-    queryKey: ['categorias'],
-    queryFn: fetchCategorias,
+    queryKey: ['categorias', clienteId],
+    queryFn: () => fetchCategorias(clienteId),
   })
 
   // Toast
@@ -530,7 +533,7 @@ export function CategoriasPage() {
 
   // Mutations
   const createCat = useMutation({
-    mutationFn: (d: object) => api.post('/categorias', d),
+    mutationFn: (d: object) => api.post('/categorias', { ...d, clienteId }),
     onSuccess: () => { invalidate(); closeModal(); showToast('Categoría creada') },
     onError: (err: Error) => {
       setModal(prev => prev ? { ...prev, error: err.message || 'Error al guardar' } : prev)

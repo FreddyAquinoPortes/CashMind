@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import { Icon } from '@iconify/react'
 import { api } from '../../lib/api'
-import { useClienteActivo } from '../../store/auth.store'
+import { useAuthStore } from '../../store/auth.store'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -612,8 +612,7 @@ function AtomicoView({
 
 export function PresupuestosPage() {
   const qc = useQueryClient()
-  const clienteActivo = useClienteActivo()
-  const clienteId = clienteActivo?.id ?? ''
+  const clienteId = useAuthStore(s => s.clienteActivo?.id) ?? ''
 
   const [tab, setTab] = useState<'planificar' | 'ejecutar' | 'historial'>('planificar')
   const [selectedId, setSelectedId] = useState<string | null>(null)

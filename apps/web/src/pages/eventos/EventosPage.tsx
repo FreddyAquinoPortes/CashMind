@@ -31,6 +31,13 @@ const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto'
 const pad = (n: number) => String(n).padStart(2, '0')
 const toDateStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
+// Parsea fechas ISO del API como fecha LOCAL (evita el desfase UTC-4 de RD)
+const parseLocalDate = (iso: string) => {
+  const part = iso.split('T')[0]!          // "YYYY-MM-DD"
+  const [y, m, d] = part.split('-').map(Number)
+  return new Date(y!, m! - 1, d!)
+}
+
 const fmt = (n: string | number) =>
   new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2 }).format(parseFloat(String(n)))
 
@@ -84,7 +91,7 @@ function getWeekStart(d: Date): Date {
 
 // ── Recurring expansion ────────────────────────────────────────────────────
 function occurrencesInMonth(ev: Evento, year: number, month: number): Date[] {
-  const base = new Date(ev.fecha)
+  const base = parseLocalDate(ev.fecha)
   const first = new Date(year, month, 1)
   const last  = new Date(year, month + 1, 0)
   const dates: Date[] = []
@@ -112,7 +119,7 @@ function occurrencesInMonth(ev: Evento, year: number, month: number): Date[] {
 
 function occursOnDate(ev: Evento, date: Date): boolean {
   const ds = toDateStr(date)
-  const base = new Date(ev.fecha)
+  const base = parseLocalDate(ev.fecha)
   if (!ev.recurrente || !ev.tipoRecurrencia) {
     return toDateStr(base) === ds
   }
