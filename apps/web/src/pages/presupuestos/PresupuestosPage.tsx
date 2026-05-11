@@ -13,6 +13,7 @@ import { useClienteActivo } from '../../store/auth.store'
 // ─────────────────────────────────────────────────────────────────────────────
 
 type TipoLinea = 'INGRESO' | 'GASTO'
+type TipoPresupuesto = 'NORMAL' | 'ATOMICO'
 type EstadoPresupuesto = 'BORRADOR' | 'ACTIVO' | 'CERRADO'
 
 interface EjecucionLinea {
@@ -27,6 +28,7 @@ interface EjecucionLinea {
 interface LineaPresupuesto {
   id: string
   tipo: TipoLinea
+  incluido: boolean
   concepto: string
   categoriaId: string | null
   subcategoriaId: string | null
@@ -46,6 +48,7 @@ interface Presupuesto {
   nombre: string
   fechaInicio: string
   fechaFin: string
+  tipo: TipoPresupuesto
   estado: EstadoPresupuesto
   notas: string | null
   lineas: LineaPresupuesto[]
@@ -294,7 +297,7 @@ function PresupuestoForm({
   initial, onSubmit, onClose, loading,
 }: {
   initial?: Partial<Presupuesto>
-  onSubmit: (d: { nombre: string; fechaInicio: string; fechaFin: string; notas?: string }) => void
+  onSubmit: (d: { nombre: string; fechaInicio: string; fechaFin: string; tipo: TipoPresupuesto; notas?: string }) => void
   onClose: () => void
   loading: boolean
 }) {
@@ -303,14 +306,44 @@ function PresupuestoForm({
   const m = String(now.getMonth() + 1).padStart(2, '0')
   const lastDay = new Date(y, now.getMonth() + 1, 0).getDate()
 
-  const [nombre, setNombre] = useState(initial?.nombre ?? `Presupuesto ${now.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' })}`)
+  const [tipo, setTipo] = useState<TipoPresupuesto>(initial?.tipo ?? 'NORMAL')
+  const [nombre, setNombre] = useState(
+    initial?.nombre ??
+    (tipo === 'ATOMICO'
+      ? `Lista ${now.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' })}`
+      : `Presupuesto ${now.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' })}`)
+  )
   const [ini, setIni] = useState(initial?.fechaInicio?.slice(0, 10) ?? `${y}-${m}-01`)
   const [fin, setFin] = useState(initial?.fechaFin?.slice(0, 10) ?? `${y}-${m}-${lastDay}`)
   const [notas, setNotas] = useState(initial?.notas ?? '')
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit({ nombre, fechaInicio: ini, fechaFin: fin, notas: notas || undefined }) }}
+    <form onSubmit={e => { e.preventDefault(); onSubmit({ nombre, tipo, fechaInicio: ini, fechaFin: fin, notas: notas || undefined }) }}
       className="flex flex-col gap-4">
+
+      {/* Tipo selector */}
+      {!initial?.id && (
+        <div className="flex flex-col gap-1.5 text-sm text-text-secondary">
+          <span>Tipo de presupuesto</span>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { key: 'NORMAL', icon: 'tabler:layout-list', label: 'Normal', desc: 'Ingresos y gastos por período, ejecución línea por línea' },
+              { key: 'ATOMICO', icon: 'tabler:shopping-cart', label: 'Atómico', desc: 'Lista de ítems que se ejecuta como una sola transacción' },
+            ] as const).map(t => (
+              <button key={t.key} type="button" onClick={() => setTipo(t.key)}
+                className={`flex flex-col gap-1 p-3 rounded-xl border text-left transition-all
+                  ${tipo === t.key ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'}`}>
+                <div className="flex items-center gap-1.5">
+                  <Icon icon={t.icon} className={`w-4 h-4 ${tipo === t.key ? 'text-primary' : 'text-text-muted'}`} />
+                  <span className={`font-semibold text-sm ${tipo === t.key ? 'text-primary' : 'text-text-primary'}`}>{t.label}</span>
+                </div>
+                <span className="text-xs text-text-muted leading-snug">{t.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Nombre *
         <input required value={nombre} onChange={e => setNombre(e.target.value)} className="input" autoFocus />
@@ -331,7 +364,7 @@ function PresupuestoForm({
       </label>
       <div className="flex gap-2 justify-end pt-2">
         <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
-        <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Creando…' : 'Crear presupuesto'}</button>
+        <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Creando…' : 'Crear'}</button>
       </div>
     </form>
   )
@@ -438,6 +471,141 @@ function EjecutarLineaForm({
   )
 }
 
+// ── Atomic budget checklist view ──────────────────────────────────────────
+function AtomicoView({
+  presupuesto,
+  onToggle,
+  onDelete,
+  onAddItem,
+  onEjecutarTodo,
+  ejecutando,
+}: {
+  presupuesto: Presupuesto
+  onToggle: (lineaId: string, incluido: boolean) => void
+  onDelete: (lineaId: string) => void
+  onAddItem: () => void
+  onEjecutarTodo: () => void
+  ejecutando: boolean
+}) {
+  const lineas = presupuesto.lineas
+  const incluidas = lineas.filter(l => l.incluido)
+  const total = incluidas.reduce((s, l) => s + l.montoPlaneado, 0)
+  const totalTodo = lineas.reduce((s, l) => s + l.montoPlaneado, 0)
+  const yaEjecutado = lineas.some(l => l.ejecuciones.length > 0)
+  const cerrado = presupuesto.estado === 'CERRADO'
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Info banner */}
+      <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary flex items-start gap-2">
+        <Icon icon="tabler:info-circle" className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <span>
+          <strong>Presupuesto atómico</strong> — Desmarca los artículos que no compraste, luego
+          ejecuta todo de una vez. Se creará <strong>una sola transacción</strong> por el total de los ítems marcados.
+        </span>
+      </div>
+
+      {/* Checklist */}
+      <div className="bg-surface border border-border rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+          <span className="text-sm font-semibold text-text-primary flex items-center gap-2">
+            <Icon icon="tabler:shopping-cart" className="w-4 h-4 text-primary" />
+            {presupuesto.nombre}
+          </span>
+          {!cerrado && (
+            <button onClick={onAddItem}
+              className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors">
+              <Icon icon="tabler:plus" className="w-3.5 h-3.5" /> Añadir ítem
+            </button>
+          )}
+        </div>
+
+        {lineas.length === 0 && (
+          <div className="py-10 text-center text-text-muted text-sm">
+            Lista vacía. Añade ítems para comenzar.
+          </div>
+        )}
+
+        <div className="divide-y divide-border/40">
+          {lineas.map(l => {
+            const tachado = !l.incluido
+            return (
+              <div key={l.id}
+                className={`flex items-center gap-3 px-4 py-3 transition-colors
+                  ${tachado ? 'opacity-50 bg-background/40' : 'hover:bg-surface-elevated/30'}`}>
+                {/* Checkbox */}
+                <input
+                  type="checkbox"
+                  checked={l.incluido}
+                  disabled={cerrado || l.ejecuciones.length > 0}
+                  onChange={e => onToggle(l.id, e.target.checked)}
+                  className="accent-primary w-4 h-4 flex-shrink-0 cursor-pointer"
+                />
+                {/* Concepto */}
+                <span className={`flex-1 text-sm ${tachado ? 'line-through text-text-muted' : 'text-text-primary'}`}>
+                  {l.concepto}
+                </span>
+                {/* Execution badge */}
+                {l.ejecuciones.length > 0 && (
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-success/15 text-success font-medium flex-shrink-0">
+                    ✓ ejecutado
+                  </span>
+                )}
+                {/* Monto */}
+                <span className={`text-sm font-semibold tabular-nums flex-shrink-0
+                  ${tachado ? 'text-text-muted line-through' : 'text-text-primary'}`}>
+                  {fmt(l.montoPlaneado)}
+                </span>
+                {/* Delete */}
+                {!cerrado && l.ejecuciones.length === 0 && (
+                  <button onClick={() => onDelete(l.id)}
+                    className="p-1 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors flex-shrink-0">
+                    <Icon icon="tabler:x" className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Footer totals */}
+        {lineas.length > 0 && (
+          <div className="border-t border-border px-4 py-3 flex items-center justify-between bg-background/50">
+            <div className="text-xs text-text-muted">
+              {incluidas.length} de {lineas.length} ítems · descartado: {fmt(totalTodo - total)}
+            </div>
+            <div className="text-base font-bold text-text-primary tabular-nums">
+              Total: <span className="text-primary">{fmt(total)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Execute button */}
+      {!cerrado && !yaEjecutado && (
+        <div className="flex justify-end">
+          <button
+            onClick={onEjecutarTodo}
+            disabled={ejecutando || incluidas.length === 0 || presupuesto.estado === 'BORRADOR'}
+            className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+            <Icon icon="tabler:check" className="w-4 h-4" />
+            {ejecutando ? 'Ejecutando…' : `Ejecutar lista · ${fmt(total)}`}
+          </button>
+        </div>
+      )}
+      {presupuesto.estado === 'BORRADOR' && !cerrado && (
+        <p className="text-xs text-text-muted text-right">Activa el presupuesto para poder ejecutarlo.</p>
+      )}
+      {yaEjecutado && (
+        <div className="rounded-xl border border-success/30 bg-success/5 px-4 py-3 text-sm text-success flex items-center gap-2">
+          <Icon icon="tabler:circle-check" className="w-4 h-4" />
+          Lista ejecutada. Transacción registrada en tus movimientos.
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Page
 // ─────────────────────────────────────────────────────────────────────────────
@@ -457,6 +625,7 @@ export function PresupuestosPage() {
     | { type: 'editLinea'; linea: LineaPresupuesto; presupuestoId: string }
     | { type: 'sugerencias'; presupuestoId: string; sugerencias: Sugerencia[] }
     | { type: 'ejecutarLinea'; linea: LineaPresupuesto; presupuestoId: string }
+    | { type: 'ejecutarAtomico'; presupuesto: Presupuesto }
     | null
   >(null)
 
@@ -524,6 +693,24 @@ export function PresupuestosPage() {
     mutationFn: (lineaId: string) => api.delete(`/presupuestos/lineas/${lineaId}`),
     onSuccess: () => { invalidate(); showToast('Línea eliminada') },
     onError: () => showToast('Error al eliminar', 'error'),
+  })
+
+  const toggleIncluido = useMutation({
+    mutationFn: ({ lineaId, incluido }: { lineaId: string; incluido: boolean }) =>
+      api.patch(`/presupuestos/lineas/${lineaId}/incluido`, { incluido }),
+    onSuccess: () => invalidate(),
+    onError: () => showToast('Error al actualizar', 'error'),
+  })
+
+  const ejecutarAtomico = useMutation({
+    mutationFn: ({ presupuestoId, d }: { presupuestoId: string; d: object }) =>
+      api.post(`/clientes/${clienteId}/presupuestos/${presupuestoId}/ejecutar-atomico`, d),
+    onSuccess: (res) => {
+      invalidate()
+      setModal(null)
+      showToast(`✓ Ejecutado: ${res.data.data.itemsEjecutados} ítems · ${fmt(res.data.data.total)}`)
+    },
+    onError: (e: Error) => showToast(e.message || 'Error al ejecutar', 'error'),
   })
 
   const ejecutarLinea = useMutation({
@@ -599,10 +786,18 @@ export function PresupuestosPage() {
                     ? 'border-primary bg-primary/10 text-text-primary'
                     : 'border-border bg-surface text-text-secondary hover:border-primary/40 hover:bg-surface-elevated'}`}
               >
-                <div className="font-medium text-sm truncate">{p.nombre}</div>
+                <div className="flex items-center gap-1.5">
+                  {p.tipo === 'ATOMICO' && <Icon icon="tabler:shopping-cart" className="w-3 h-3 text-text-muted flex-shrink-0" />}
+                  <span className="font-medium text-sm truncate">{p.nombre}</span>
+                </div>
                 <div className="text-xs text-text-muted mt-0.5">{periodoLabel(p)}</div>
-                <div className={`text-xs font-semibold mt-1.5 inline-block px-1.5 py-0.5 rounded-full ${ESTADO_COLOR[p.estado]}`}>
-                  {p.estado}
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <span className={`text-xs font-semibold inline-block px-1.5 py-0.5 rounded-full ${ESTADO_COLOR[p.estado]}`}>
+                    {p.estado}
+                  </span>
+                  {p.tipo === 'ATOMICO' && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Atómico</span>
+                  )}
                 </div>
               </button>
             ))}
@@ -676,8 +871,20 @@ export function PresupuestosPage() {
                 </div>
               </div>
 
-              {/* Tabs */}
-              <div className="flex border-b border-border gap-1">
+              {/* ── ATÓMICO: checklist view (no tabs) ── */}
+              {presupuesto.tipo === 'ATOMICO' && (
+                <AtomicoView
+                  presupuesto={presupuesto}
+                  onToggle={(lineaId, incluido) => toggleIncluido.mutate({ lineaId, incluido })}
+                  onDelete={id => deleteLinea.mutate(id)}
+                  onAddItem={() => setModal({ type: 'newLinea', presupuestoId: presupuesto.id, tipoDefecto: 'GASTO' })}
+                  onEjecutarTodo={() => setModal({ type: 'ejecutarAtomico', presupuesto })}
+                  ejecutando={ejecutarAtomico.isPending}
+                />
+              )}
+
+              {/* ── NORMAL: tabs ── */}
+              {presupuesto.tipo === 'NORMAL' && (<><div className="flex border-b border-border gap-1">
                 {([
                   { key: 'planificar', label: 'Planificación', icon: 'tabler:layout-list' },
                   { key: 'ejecutar',   label: 'Ejecución',     icon: 'tabler:player-play' },
@@ -941,6 +1148,7 @@ export function PresupuestosPage() {
                   </div>
                 </div>
               )}
+              </>)}
             </div>
           )}
         </div>
@@ -1003,6 +1211,68 @@ export function PresupuestosPage() {
           />
         </Modal>
       )}
+
+      {modal?.type === 'ejecutarAtomico' && (() => {
+        const p = modal.presupuesto
+        const incluidas = p.lineas.filter(l => l.incluido)
+        const total = incluidas.reduce((s, l) => s + l.montoPlaneado, 0)
+        return (
+          <Modal title="Ejecutar lista completa" onClose={() => setModal(null)}>
+            <EjecutarAtomicoConfirm
+              presupuesto={p}
+              total={total}
+              itemCount={incluidas.length}
+              loading={ejecutarAtomico.isPending}
+              onClose={() => setModal(null)}
+              onSubmit={d => ejecutarAtomico.mutate({ presupuestoId: p.id, d })}
+            />
+          </Modal>
+        )
+      })()}
     </div>
+  )
+}
+
+// ── Confirm modal for atomic execution ───────────────────────────────────────
+function EjecutarAtomicoConfirm({
+  presupuesto, total, itemCount, loading, onClose, onSubmit,
+}: {
+  presupuesto: Presupuesto
+  total: number
+  itemCount: number
+  loading: boolean
+  onClose: () => void
+  onSubmit: (d: { fecha: string; notas?: string; cuentaId?: string }) => void
+}) {
+  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
+  const [notas, setNotas] = useState('')
+
+  return (
+    <form onSubmit={e => { e.preventDefault(); onSubmit({ fecha, notas: notas || undefined }) }}
+      className="flex flex-col gap-4">
+      <div className="rounded-xl bg-primary/5 border border-primary/20 px-4 py-3 flex flex-col gap-1">
+        <div className="text-sm text-text-secondary">{itemCount} ítems marcados se registrarán como una sola transacción:</div>
+        <div className="text-2xl font-bold text-primary tabular-nums">{fmt(total)}</div>
+        <div className="text-xs text-text-muted">{presupuesto.nombre}</div>
+      </div>
+      <label className="flex flex-col gap-1 text-sm text-text-secondary">
+        Fecha de transacción
+        <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} className="input" />
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-text-secondary">
+        Notas adicionales
+        <input value={notas} onChange={e => setNotas(e.target.value)} className="input" placeholder="Opcional…" />
+      </label>
+      <p className="text-xs text-text-muted">
+        El presupuesto se cerrará automáticamente tras la ejecución.
+        Los ítems desmarcados <strong>no</strong> se incluirán en la transacción.
+      </p>
+      <div className="flex gap-2 justify-end pt-2">
+        <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
+        <button type="submit" disabled={loading || itemCount === 0} className="btn-primary">
+          {loading ? 'Ejecutando…' : `Confirmar · ${fmt(total)}`}
+        </button>
+      </div>
+    </form>
   )
 }

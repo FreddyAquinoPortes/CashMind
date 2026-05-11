@@ -104,6 +104,11 @@ enum TipoLineaPresupuesto {
   GASTO
 }
 
+enum TipoPresupuesto {
+  NORMAL
+  ATOMICO
+}
+
 // =================== USUARIOS Y CLIENTES ===================
 model Usuario {
   id               String    @id @default(cuid())
@@ -423,6 +428,7 @@ model Presupuesto {
   nombre      String
   fechaInicio DateTime
   fechaFin    DateTime
+  tipo        TipoPresupuesto      @default(NORMAL)
   estado      EstadoPresupuesto    @default(BORRADOR)
   notas       String?
   lineas      LineaPresupuesto[]
@@ -443,6 +449,7 @@ model LineaPresupuesto {
   montoPlaneado  Decimal              @db.Decimal(15, 2)
   notas          String?
   orden          Int                  @default(0)
+  incluido       Boolean              @default(true)
   eventoId       String?
   deudaId        String?
   rutaId         String?

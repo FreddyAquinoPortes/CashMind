@@ -44,6 +44,7 @@ export async function createPresupuesto(clienteId: string, data: {
   nombre: string
   fechaInicio: string
   fechaFin: string
+  tipo?: 'NORMAL' | 'ATOMICO'
   notas?: string
   lineas?: LineaInput[]
 }) {
@@ -52,6 +53,7 @@ export async function createPresupuesto(clienteId: string, data: {
     data: {
       clienteId,
       nombre: rest.nombre,
+      tipo: rest.tipo ?? 'NORMAL',
       fechaInicio: new Date(rest.fechaInicio),
       fechaFin: new Date(rest.fechaFin),
       notas: rest.notas ?? null,
@@ -65,6 +67,7 @@ export async function createPresupuesto(clienteId: string, data: {
           montoPlaneado: l.montoPlaneado,
           notas: l.notas ?? null,
           orden: l.orden ?? i,
+          incluido: l.incluido ?? true,
           eventoId: l.eventoId ?? null,
           deudaId: l.deudaId ?? null,
           rutaId: l.rutaId ?? null,
@@ -112,15 +115,14 @@ interface LineaInput {
   montoPlaneado: number
   notas?: string | null
   orden?: number
+  incluido?: boolean
   eventoId?: string | null
   deudaId?: string | null
   rutaId?: string | null
 }
 
 export async function addLinea(clienteId: string, presupuestoId: string, data: LineaInput) {
-  // Verify ownership
   await prisma.presupuesto.findFirstOrThrow({ where: { id: presupuestoId, clienteId } })
-
   const count = await prisma.lineaPresupuesto.count({ where: { presupuestoId } })
   return prisma.lineaPresupuesto.create({
     data: {
@@ -132,10 +134,19 @@ export async function addLinea(clienteId: string, presupuestoId: string, data: L
       montoPlaneado: data.montoPlaneado,
       notas: data.notas ?? null,
       orden: data.orden ?? count,
+      incluido: data.incluido ?? true,
       eventoId: data.eventoId ?? null,
       deudaId: data.deudaId ?? null,
       rutaId: data.rutaId ?? null,
     },
+    include: { ejecuciones: true },
+  })
+}
+
+export async function toggleIncluido(lineaId: string, incluido: boolean) {
+  return prisma.lineaPresupuesto.update({
+    where: { id: lineaId },
+    data: { incluido },
     include: { ejecuciones: true },
   })
 }
@@ -358,6 +369,78 @@ export async function getSugerencias(clienteId: string, fechaInicio: string, fec
   return sugerencias
 }
 
+// ── Ejecución atómica ──────────────────────────────────────────────────────
+// Creates ONE transaction for the sum of all included lines (atomic budgets)
+
+export async function ejecutarAtomico(clienteId: string, presupuestoId: string, data: {
+  fecha?: string
+  cuentaId?: string
+  notas?: string
+}) {
+  const pres = await prisma.presupuesto.findFirstOrThrow({
+    where: { id: presupuestoId, clienteId },
+    include: { lineas: { where: { incluido: true }, include: { ejecuciones: true } } },
+  })
+
+  if (pres.tipo !== 'ATOMICO') throw new Error('Solo presupuestos atómicos pueden ejecutarse en bloque')
+
+  const lineasIncluidas = pres.lineas
+  if (lineasIncluidas.length === 0) throw new Error('No hay ítems incluidos para ejecutar')
+
+  const total = lineasIncluidas.reduce((s, l) => s + parseNum(l.montoPlaneado), 0)
+  const fecha = data.fecha ? new Date(data.fecha) : new Date()
+
+  // Determine dominant category (most common among included lines)
+  const catFreq: Record<string, number> = {}
+  for (const l of lineasIncluidas) {
+    if (l.categoriaId) catFreq[l.categoriaId] = (catFreq[l.categoriaId] ?? 0) + 1
+  }
+  const categoriaId = Object.entries(catFreq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
+  // Determine dominant subcategory
+  const subFreq: Record<string, number> = {}
+  for (const l of lineasIncluidas) {
+    if (l.subcategoriaId) subFreq[l.subcategoriaId] = (subFreq[l.subcategoriaId] ?? 0) + 1
+  }
+  const subcategoriaId = Object.entries(subFreq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
+  // Create the single transaction
+  const tx = await prisma.transaccion.create({
+    data: {
+      clienteId,
+      concepto: data.notas ? `${pres.nombre} — ${data.notas}` : pres.nombre,
+      monto: total,
+      tipo: 'GASTO',
+      estado: 'EJECUTADO',
+      fecha,
+      categoriaId: categoriaId ?? undefined,
+      subcategoriaId: subcategoriaId ?? undefined,
+      cuentaId: data.cuentaId ?? undefined,
+      notas: `Presupuesto atómico: ${lineasIncluidas.length} ítems ejecutados en bloque`,
+      frecuencia: 'UNICA',
+    },
+  })
+
+  // Create one EjecucionLinea per included line, all linked to the same transaction
+  await prisma.ejecucionLinea.createMany({
+    data: lineasIncluidas.map(l => ({
+      lineaId: l.id,
+      montoEjecutado: parseNum(l.montoPlaneado),
+      fecha,
+      transaccionId: tx.id,
+      notas: `Parte de ejecución atómica: ${pres.nombre}`,
+    })),
+  })
+
+  // Auto-close the budget after atomic execution
+  await prisma.presupuesto.update({
+    where: { id: presupuestoId },
+    data: { estado: 'CERRADO' },
+  })
+
+  return { transaccionId: tx.id, total, itemsEjecutados: lineasIncluidas.length }
+}
+
 // ── Enrich ─────────────────────────────────────────────────────────────────
 
 type PresupuestoRaw = Awaited<ReturnType<typeof prisma.presupuesto.findFirstOrThrow>>
@@ -369,6 +452,7 @@ function enrich(p: PresupuestoRaw & { lineas: Array<{
   montoPlaneado: { toNumber(): number } | number
   categoriaId: string | null
   subcategoriaId: string | null
+  incluido: boolean
   ejecuciones: Array<{ montoEjecutado: { toNumber(): number } | number }>
   [key: string]: unknown
 }> }) {
@@ -378,8 +462,12 @@ function enrich(p: PresupuestoRaw & { lineas: Array<{
     return { ...l, montoPlaneado: planeado, montoEjecutado: ejecutado, cumplimiento: planeado > 0 ? Math.min(100, (ejecutado / planeado) * 100) : 0 }
   })
 
-  const ingresos = lineas.filter(l => l.tipo === 'INGRESO').reduce((s, l) => s + l.montoPlaneado, 0)
-  const gastos = lineas.filter(l => l.tipo === 'GASTO').reduce((s, l) => s + l.montoPlaneado, 0)
+  // For atomic budgets, only count included lines in totals
+  const isAtomico = (p as { tipo?: string }).tipo === 'ATOMICO'
+  const lineasActivas = isAtomico ? lineas.filter(l => l.incluido) : lineas
+
+  const ingresos = lineasActivas.filter(l => l.tipo === 'INGRESO').reduce((s, l) => s + l.montoPlaneado, 0)
+  const gastos = lineasActivas.filter(l => l.tipo === 'GASTO').reduce((s, l) => s + l.montoPlaneado, 0)
   const ingresosEjecutados = lineas.filter(l => l.tipo === 'INGRESO').reduce((s, l) => s + l.montoEjecutado, 0)
   const gastosEjecutados = lineas.filter(l => l.tipo === 'GASTO').reduce((s, l) => s + l.montoEjecutado, 0)
 

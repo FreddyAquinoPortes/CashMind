@@ -65,10 +65,27 @@ presupuestosRouter.delete('/presupuestos/lineas/:lineaId', async (req, res, next
   } catch (e) { next(e) }
 })
 
-// ── Ejecución ──────────────────────────────────────────────────────────────
+// ── Ejecución (línea individual — presupuestos NORMAL) ─────────────────────
 
 presupuestosRouter.post('/clientes/:clienteId/presupuestos/lineas/:lineaId/ejecutar', async (req, res, next) => {
   try {
     res.status(201).json({ data: await svc.ejecutarLinea(req.params.clienteId!, req.params.lineaId!, req.body) })
+  } catch (e) { next(e) }
+})
+
+// ── Toggle incluido (presupuestos ATOMICO) ─────────────────────────────────
+
+presupuestosRouter.patch('/presupuestos/lineas/:lineaId/incluido', async (req, res, next) => {
+  try {
+    const { incluido } = req.body as { incluido: boolean }
+    res.json({ data: await svc.toggleIncluido(req.params.lineaId!, incluido) })
+  } catch (e) { next(e) }
+})
+
+// ── Ejecución atómica (todo en una sola transacción) ──────────────────────
+
+presupuestosRouter.post('/clientes/:clienteId/presupuestos/:id/ejecutar-atomico', async (req, res, next) => {
+  try {
+    res.status(201).json({ data: await svc.ejecutarAtomico(req.params.clienteId!, req.params.id!, req.body) })
   } catch (e) { next(e) }
 })

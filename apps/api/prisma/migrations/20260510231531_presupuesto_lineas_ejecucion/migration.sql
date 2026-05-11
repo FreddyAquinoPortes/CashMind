@@ -1,15 +1,18 @@
--- Migration: presupuesto_lineas_ejecucion
--- Adds EstadoPresupuesto enum, extends Presupuesto, creates LineaPresupuesto and EjecucionLinea
+-- Migration: presupuesto_lineas_ejecucion + tipo_atomico
+-- Adds EstadoPresupuesto, TipoPresupuesto enums, extends Presupuesto,
+-- creates LineaPresupuesto (with incluido) and EjecucionLinea
 
 -- 1. Enums
 CREATE TYPE "EstadoPresupuesto" AS ENUM ('BORRADOR', 'ACTIVO', 'CERRADO');
 CREATE TYPE "TipoLineaPresupuesto" AS ENUM ('INGRESO', 'GASTO');
+CREATE TYPE "TipoPresupuesto" AS ENUM ('NORMAL', 'ATOMICO');
 
 -- 2. Extend Presupuesto
 ALTER TABLE "Presupuesto"
-  ADD COLUMN "estado"    "EstadoPresupuesto" NOT NULL DEFAULT 'BORRADOR',
+  ADD COLUMN "tipo"      "TipoPresupuesto"   NOT NULL DEFAULT 'NORMAL',
+  ADD COLUMN "estado"    "EstadoPresupuesto"  NOT NULL DEFAULT 'BORRADOR',
   ADD COLUMN "notas"     TEXT,
-  ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+  ADD COLUMN "updatedAt" TIMESTAMP(3)         NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- 3. LineaPresupuesto
 CREATE TABLE "LineaPresupuesto" (
@@ -22,6 +25,7 @@ CREATE TABLE "LineaPresupuesto" (
   "montoPlaneado"  DECIMAL(15,2) NOT NULL,
   "notas"          TEXT,
   "orden"          INTEGER NOT NULL DEFAULT 0,
+  "incluido"       BOOLEAN NOT NULL DEFAULT true,
   "eventoId"       TEXT,
   "deudaId"        TEXT,
   "rutaId"         TEXT,
