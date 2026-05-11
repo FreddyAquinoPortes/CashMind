@@ -4,144 +4,109 @@ const prisma = new PrismaClient()
 
 // Map: category nombre → correct tabler: icon id
 const CAT_ICONS: Record<string, string> = {
-  'Vivienda':             'tabler:home',
-  'Servicios básicos':    'tabler:bolt',
-  'Alimentación':         'tabler:shopping-cart',
-  'Transporte':           'tabler:car',
-  'Salud':                'tabler:heart',
-  'Deudas':               'tabler:credit-card',
-  'Educación':            'tabler:school',
-  'Familia':              'tabler:users',
-  'Personal':             'tabler:user',
-  'Tecnología':           'tabler:device-laptop',
-  'Ocio':                 'tabler:device-gamepad',
-  'Imprevistos':          'tabler:first-aid-kit',
-  'Impuestos/Comisiones': 'tabler:receipt',
-  'Ingresos':             'tabler:trending-up',
-  'Transferencia':        'tabler:transfer',
+  'Vivienda':              'tabler:home',
+  'Servicios básicos':     'tabler:bolt',
+  'Alimentación':          'tabler:shopping-cart',
+  'Transporte':            'tabler:car',
+  'Salud':                 'tabler:heart-rate',
+  'Deudas':                'tabler:credit-card',
+  'Educación':             'tabler:school',
+  'Familia':               'tabler:users',
+  'Personal':              'tabler:user',
+  'Tecnología':            'tabler:device-laptop',
+  'Ocio':                  'tabler:device-gamepad',
+  'Imprevistos':           'tabler:first-aid-kit',
+  'Impuestos/Comisiones':  'tabler:receipt',
+  'Ingresos':              'tabler:trending-up',
+  'Transferencia':         'tabler:transfer',
 }
 
-// Map: subcategoria nombre → tabler: icon id (key: nombre lowercase)
+// Map: subcategoria nombre (exact, case-sensitive) → tabler: icon id
+// Matches the names defined in the seed file
 const SUB_ICONS: Record<string, string> = {
   // Vivienda
-  'alquiler / hipoteca':   'tabler:building',
-  'alquiler':              'tabler:building',
-  'hipoteca':              'tabler:building',
-  'mantenimiento del hogar': 'tabler:tool',
-  'mantenimiento':         'tabler:tool',
-  'electrodomésticos':     'tabler:washing-machine',
-  'electrodomesticos':     'tabler:washing-machine',
-  'decoración':            'tabler:lamp',
-  'decoracion':            'tabler:lamp',
+  'Renta/Hipoteca':           'tabler:building',
+  'Mantenimiento':            'tabler:tool',
+  'Mejoras':                  'tabler:hammer',
   // Servicios básicos
-  'electricidad':          'tabler:bolt',
-  'agua':                  'tabler:droplet',
-  'internet':              'tabler:wifi',
-  'telefonía':             'tabler:device-mobile',
-  'telefonia':             'tabler:device-mobile',
-  'gas':                   'tabler:flame',
-  'seguridad / alarma':    'tabler:shield',
-  'seguridad':             'tabler:shield',
+  'Electricidad':             'tabler:bolt',
+  'Agua':                     'tabler:droplet',
+  'Gas doméstico':            'tabler:flame',
+  'Internet':                 'tabler:wifi',
+  'Telefonía':                'tabler:device-mobile',
+  'Streaming':                'tabler:movie',
   // Alimentación
-  'supermercado':          'tabler:shopping-cart',
-  'restaurantes':          'tabler:tools-kitchen-2',
-  'comida rápida':         'tabler:burger',
-  'comida rapida':         'tabler:burger',
-  'delivery':              'tabler:bike',
-  'colmado':               'tabler:apple',
-  'cafetería':             'tabler:coffee',
-  'cafeteria':             'tabler:coffee',
+  'Supermercado':             'tabler:shopping-cart',
+  'Comida fuera':             'tabler:tools-kitchen-2',
+  'Comida rápida':            'tabler:burger',
+  'Bebidas':                  'tabler:glass-full',
   // Transporte
-  'gasolina':              'tabler:gas-station',
-  'uber / taxi':           'tabler:car',
-  'uber':                  'tabler:car',
-  'taxi':                  'tabler:car',
-  'seguro de vehículo':    'tabler:shield',
-  'seguro de vehiculo':    'tabler:shield',
-  'mantenimiento de auto': 'tabler:car-suv',
-  'estacionamiento':       'tabler:parking',
-  'peaje':                 'tabler:road',
+  'Combustible':              'tabler:gas-station',
+  'Peaje':                    'tabler:road',
+  'Mantenimiento vehículo':   'tabler:car-suv',
+  'Uber/Taxi':                'tabler:car',
+  'Seguro vehículo':          'tabler:shield',
   // Salud
-  'médico / consulta':     'tabler:stethoscope',
-  'medico / consulta':     'tabler:stethoscope',
-  'médico':                'tabler:stethoscope',
-  'medicamentos':          'tabler:pill',
-  'seguro médico':         'tabler:heart',
-  'seguro medico':         'tabler:heart',
-  'gym / deporte':         'tabler:dumbbell',
-  'gym':                   'tabler:dumbbell',
-  'dentista':              'tabler:dental',
+  'Farmacia':                 'tabler:pill',
+  'Consultas':                'tabler:stethoscope',
+  'Laboratorio':              'tabler:microscope',
+  'Seguro médico':            'tabler:heart',
   // Deudas
-  'préstamo bancario':     'tabler:bank',
-  'prestamo bancario':     'tabler:bank',
-  'préstamo personal':     'tabler:users',
-  'prestamo personal':     'tabler:users',
-  'tarjeta de crédito':    'tabler:credit-card',
-  'tarjeta de credito':    'tabler:credit-card',
-  'deuda informal':        'tabler:coin',
+  'Tarjeta crédito':          'tabler:credit-card',
+  'Préstamo personal':        'tabler:users',
+  'Préstamo bancario':        'tabler:bank',
+  'Deuda familiar':           'tabler:coin',
   // Educación
-  'colegio / universidad': 'tabler:school',
-  'colegio':               'tabler:school',
-  'cursos':                'tabler:certificate',
-  'libros / útiles':       'tabler:book',
-  'libros':                'tabler:book',
+  'Matrícula':                'tabler:school',
+  'Material':                 'tabler:book',
+  'Cursos':                   'tabler:certificate',
   // Familia
-  'hijos':                 'tabler:baby',
-  'mascotas':              'tabler:paw',
-  'padres / familiares':   'tabler:old-man',
-  'padres':                'tabler:old-man',
+  'Apoyo familiar':           'tabler:users',
+  'Cumpleaños':               'tabler:cake',
+  'Día especial':             'tabler:gift',
   // Personal
-  'ropa / calzado':        'tabler:shirt',
-  'ropa':                  'tabler:shirt',
-  'peluquería / belleza':  'tabler:scissors',
-  'peluqueria':            'tabler:scissors',
-  'suscripciones':         'tabler:star',
+  'Higiene':                  'tabler:brush',
+  'Ropa':                     'tabler:shirt',
+  'Gimnasio':                 'tabler:dumbbell',
   // Tecnología
-  'equipos':               'tabler:device-desktop',
-  'software / apps':       'tabler:code',
-  'software':              'tabler:code',
-  'accesorios tech':       'tabler:device-mobile',
+  'Suscripciones':            'tabler:star',
+  'Hardware':                 'tabler:device-desktop',
+  'Software':                 'tabler:code',
   // Ocio
-  'entretenimiento':       'tabler:movie',
-  'viajes':                'tabler:plane',
-  'deportes':              'tabler:run',
-  'restaurante social':    'tabler:tools-kitchen-2',
+  'Entretenimiento':          'tabler:movie',
+  'Salidas':                  'tabler:beach',
+  'Compras online':           'tabler:shopping-bag',
   // Imprevistos
-  'emergencia médica':     'tabler:first-aid-kit',
-  'emergencia medica':     'tabler:first-aid-kit',
-  'reparación urgente':    'tabler:wrench',
-  'reparacion urgente':    'tabler:wrench',
-  'multas':                'tabler:receipt',
-  // Impuestos
-  'dgii / itbis':          'tabler:receipt',
-  'dgii':                  'tabler:receipt',
-  'comisiones bancarias':  'tabler:bank',
-  'otros impuestos':       'tabler:file-text',
+  'Reserva mensual':          'tabler:piggy-bank',
+  'Emergencias':              'tabler:first-aid-kit',
+  // Impuestos/Comisiones
+  'DGII':                     'tabler:receipt',
+  'Cargos bancarios':         'tabler:bank',
+  'Comisiones':               'tabler:percent',
   // Ingresos
-  'salario / nómina':      'tabler:moneybag',
-  'salario':               'tabler:moneybag',
-  'nómina':                'tabler:moneybag',
-  'nomina':                'tabler:moneybag',
-  'freelance':             'tabler:briefcase',
-  'inversiones':           'tabler:trending-up',
-  'otros ingresos':        'tabler:coins',
+  'Nómina':                   'tabler:moneybag',
+  'Apoyo familiar recibido':  'tabler:users',
+  'Trabajos extra':           'tabler:briefcase',
+  'Bonos':                    'tabler:trophy',
+  'Devoluciones':             'tabler:arrow-down-circle',
   // Transferencia
-  'entre cuentas propias': 'tabler:transfer',
-  'pago a terceros':       'tabler:users',
-  'recepción':             'tabler:arrow-down-circle',
-  'recepcion':             'tabler:arrow-down-circle',
+  'Retiro efectivo':          'tabler:cash',
+  'Envío transferencia':      'tabler:transfer',
+  'Recibir transferencia':    'tabler:arrow-down-circle',
 }
 
 async function main() {
-  // Fix category icons
+  // Fix category icons (always update, even if already set)
   const cats = await prisma.categoria.findMany({ where: { clienteId: null } })
   let catFixed = 0
   for (const cat of cats) {
     const icon = CAT_ICONS[cat.nombre]
-    if (icon && cat.icono !== icon) {
+    if (icon) {
       await prisma.categoria.update({ where: { id: cat.id }, data: { icono: icon } })
       console.log(`  cat: "${cat.nombre}" → ${icon}`)
       catFixed++
+    } else {
+      console.log(`  cat: "${cat.nombre}" — no icon mapping (skipped)`)
     }
   }
 
@@ -151,13 +116,14 @@ async function main() {
   })
   let subFixed = 0
   for (const sub of subs) {
-    if (sub.categoria.clienteId !== null) continue  // skip custom
-    const key = sub.nombre.toLowerCase()
-    const icon = SUB_ICONS[key]
-    if (icon && sub.icono !== icon) {
+    if (sub.categoria.clienteId !== null) continue  // skip user-created
+    const icon = SUB_ICONS[sub.nombre]
+    if (icon) {
       await prisma.subcategoria.update({ where: { id: sub.id }, data: { icono: icon } })
       console.log(`  sub: "${sub.nombre}" → ${icon}`)
       subFixed++
+    } else {
+      console.log(`  sub: "${sub.nombre}" — no icon mapping`)
     }
   }
 

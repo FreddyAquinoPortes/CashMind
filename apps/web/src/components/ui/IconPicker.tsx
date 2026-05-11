@@ -4,18 +4,28 @@ import { Icon } from '@iconify/react'
 // ── Auto-suggest: maps category name words to the best icon ──────────────
 // Priority map: keyword → exact tabler icon (first match wins)
 const SUGGEST_MAP: Array<[string[], string]> = [
-  // Compras
+  // ── Categorías del sistema (nombres exactos primero) ──────────────────────
+  [['vivienda','hogar propio'], 'tabler:home'],
+  [['servicios basicos','servicios básicos','servicio basico'], 'tabler:bolt'],
+  [['alimentacion','alimentación'], 'tabler:shopping-cart'],
+  [['transporte','movilidad'], 'tabler:car'],
+  [['impuesto','impuestos','comisione','dgii','itbis','tax','declaracion'], 'tabler:receipt'],
+  [['imprevisto','emergencia','reserva','contingencia'], 'tabler:first-aid-kit'],
+  [['ocio','recreacion','recreación','diversión','diversion'], 'tabler:device-gamepad'],
+  [['tecnologia','tecnología'], 'tabler:device-laptop'],
+  [['ingreso','ingresos','entrada'], 'tabler:trending-up'],
+  // ── Compras ───────────────────────────────────────────────────────────────
   [['compra','supermercado','mercado','bravo','nacional','jumbo','plaza'], 'tabler:shopping-cart'],
   [['online','amazon','ebay','shopify','ecommerce','tienda online'], 'tabler:shopping-bag'],
   [['farmacia','medicamento','drogueria','carol'], 'tabler:pill'],
   [['ropa','moda','calzado','zapato','vestimenta','boutique'], 'tabler:shirt'],
-  // Alimentación
+  // ── Alimentación ─────────────────────────────────────────────────────────
   [['restaurante','comida','almuerzo','cena','desayuno','buffet'], 'tabler:tools-kitchen-2'],
   [['cafe','cafeteria','starbucks','coffee'], 'tabler:coffee'],
   [['pizza','burger','hamburguesa','mcdonalds','kfc','subway'], 'tabler:burger'],
   [['bar','cerveza','beer','licor','alcohol'], 'tabler:beer'],
   [['colmado','verdura','fruta','mercadito'], 'tabler:apple'],
-  // Transporte
+  // ── Transporte ────────────────────────────────────────────────────────────
   [['gasolina','combustible','shell','texaco','gasolinera','fuel'], 'tabler:gas-station'],
   [['uber','taxi','didi','cabify','ride'], 'tabler:car'],
   [['carro','auto','vehiculo','nissan','toyota','honda','hyundai'], 'tabler:car-suv'],
@@ -23,46 +33,45 @@ const SUGGEST_MAP: Array<[string[], string]> = [
   [['bus','metro','tren','transporte publico'], 'tabler:bus'],
   [['bicicleta','bike','cycling'], 'tabler:bicycle'],
   [['moto','motocicleta'], 'tabler:motorbike'],
-  // Hogar
+  // ── Hogar ─────────────────────────────────────────────────────────────────
   [['alquiler','renta','hipoteca','apartamento','casa','habitacion'], 'tabler:home'],
-  [['electricidad','luz','edeeste','edenorte','edeste','edenorte','corriente'], 'tabler:bolt'],
+  [['electricidad','luz','edeeste','edenorte','edeste','corriente'], 'tabler:bolt'],
   [['agua','acueducto','caasd'], 'tabler:droplet'],
   [['internet','wifi','claro','altice','wind','fiber'], 'tabler:wifi'],
   [['telefono','celular','movil','plan','linea'], 'tabler:device-mobile'],
   [['limpieza','aseo','lavanderia','lavado'], 'tabler:washing-machine'],
   [['reparacion','mantenimiento','plomero','electricista','arreglo'], 'tabler:tool'],
-  // Salud
+  // ── Salud ─────────────────────────────────────────────────────────────────
   [['medico','doctor','clinica','hospital','consulta','cita'], 'tabler:stethoscope'],
-  [['salud','seguro medico','seguro','poliza'], 'tabler:heart'],
+  [['salud','seguro medico','seguro','poliza'], 'tabler:heart-rate'],
   [['gym','gimnasio','ejercicio','deporte','fitness'], 'tabler:dumbbell'],
   [['dentista','dental','odontologia'], 'tabler:dental'],
   [['oculista','optica','vision','lentes'], 'tabler:eye'],
-  // Finanzas
+  // ── Finanzas ──────────────────────────────────────────────────────────────
   [['ahorro','ahorros','fondo'], 'tabler:piggy-bank'],
   [['inversion','bolsa','acciones','dividendo','rendimiento'], 'tabler:trending-up'],
   [['prestamo','deuda','credito','banco union','banreservas','bpd','blh'], 'tabler:credit-card'],
-  [['impuesto','dgii','tax','itbis','declaracion'], 'tabler:receipt'],
-  [['nomina','salario','sueldo','ingreso','pago'], 'tabler:moneybag'],
+  [['nomina','salario','sueldo','pago'], 'tabler:moneybag'],
   [['tarjeta','mastercard','visa','amex'], 'tabler:credit-card'],
-  [['transferencia','pago','envio'], 'tabler:transfer'],
-  // Educación
+  [['transferencia','envio'], 'tabler:transfer'],
+  // ── Educación ─────────────────────────────────────────────────────────────
   [['escuela','colegio','universidad','educacion','curs','materia','beca'], 'tabler:school'],
   [['libro','libreria','papeleria','utiles'], 'tabler:book'],
-  // Entretenimiento
+  // ── Entretenimiento ───────────────────────────────────────────────────────
   [['netflix','disney','hbo','streaming','pelicula','cine'], 'tabler:movie'],
   [['spotify','musica','concierto','apple music'], 'tabler:music'],
   [['juego','game','playstation','xbox','nintendo','steam'], 'tabler:device-gamepad'],
-  [['deporte','futbol','basketball','beisbol','tenis'], 'tabler:run'],
-  // Trabajo
+  [['futbol','basketball','beisbol','tenis'], 'tabler:run'],
+  // ── Trabajo ───────────────────────────────────────────────────────────────
   [['trabajo','oficina','empresa','negocio','freelance','proyecto'], 'tabler:briefcase'],
-  [['computadora','laptop','software','hardware','tecnologia'], 'tabler:device-laptop'],
-  // Social & familia
+  [['computadora','laptop','software','hardware'], 'tabler:device-laptop'],
+  // ── Social & familia ──────────────────────────────────────────────────────
   [['familia','hijo','esposa','esposo','pareja'], 'tabler:users'],
   [['mascota','perro','gato','veterinario'], 'tabler:paw'],
   [['regalo','cumpleanos','celebracion','fiesta'], 'tabler:gift'],
-  [['viaje','vacaciones','hotel','turismo'], 'tabler:beach'],
-  // Generales
-  [['personal','propio','yo'], 'tabler:user'],
+  [['vacaciones','hotel','turismo'], 'tabler:beach'],
+  // ── Generales ─────────────────────────────────────────────────────────────
+  [['personal','propio','yo','higiene'], 'tabler:user'],
   [['otros','varios','miscelaneo','general'], 'tabler:dots'],
 ]
 

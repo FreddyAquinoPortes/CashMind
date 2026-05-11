@@ -8,21 +8,21 @@ async function main() {
 
   // ---- Categorías globales ----
   const categorias = [
-    { nombre: 'Vivienda',           peso: 10, icono: 'home',          esEsencial: true,  subs: ['Renta/Hipoteca','Mantenimiento','Mejoras'] },
-    { nombre: 'Servicios básicos',  peso: 9,  icono: 'zap',           esEsencial: true,  subs: ['Electricidad','Agua','Gas doméstico','Internet','Telefonía','Streaming'] },
-    { nombre: 'Alimentación',       peso: 9,  icono: 'shopping-cart', esEsencial: true,  subs: ['Supermercado','Comida fuera','Comida rápida','Bebidas'] },
-    { nombre: 'Transporte',         peso: 8,  icono: 'car',           esEsencial: true,  subs: ['Combustible','Peaje','Mantenimiento vehículo','Uber/Taxi','Seguro vehículo'] },
-    { nombre: 'Salud',              peso: 10, icono: 'heart-pulse',   esEsencial: true,  subs: ['Farmacia','Consultas','Laboratorio','Seguro médico'] },
-    { nombre: 'Deudas',             peso: 9,  icono: 'credit-card',   esEsencial: true,  subs: ['Tarjeta crédito','Préstamo personal','Préstamo bancario','Deuda familiar'] },
-    { nombre: 'Educación',          peso: 8,  icono: 'book',          esEsencial: true,  subs: ['Matrícula','Material','Cursos'] },
-    { nombre: 'Familia',            peso: 6,  icono: 'users',         esEsencial: false, subs: ['Apoyo familiar','Cumpleaños','Día especial'] },
-    { nombre: 'Personal',           peso: 5,  icono: 'user',          esEsencial: false, subs: ['Higiene','Ropa','Gimnasio'] },
-    { nombre: 'Tecnología',         peso: 4,  icono: 'monitor',       esEsencial: false, subs: ['Suscripciones','Hardware','Software'] },
-    { nombre: 'Ocio',               peso: 3,  icono: 'gamepad',       esEsencial: false, subs: ['Entretenimiento','Salidas','Compras online'] },
-    { nombre: 'Imprevistos',        peso: 7,  icono: 'alert-triangle',esEsencial: false, subs: ['Reserva mensual','Emergencias'] },
-    { nombre: 'Impuestos/Comisiones',peso:10, icono: 'landmark',      esEsencial: true,  subs: ['DGII','Cargos bancarios','Comisiones'] },
-    { nombre: 'Ingresos',           peso: 10, icono: 'trending-up',   esEsencial: true,  subs: ['Nómina','Apoyo familiar recibido','Trabajos extra','Bonos','Devoluciones'] },
-    { nombre: 'Transferencia',      peso: 5,  icono: 'arrow-right-left',esEsencial:false, subs: ['Retiro efectivo','Envío transferencia','Recibir transferencia'] },
+    { nombre: 'Vivienda',            peso: 10, icono: 'tabler:home',           esEsencial: true,  subs: ['Renta/Hipoteca','Mantenimiento','Mejoras'] },
+    { nombre: 'Servicios básicos',   peso: 9,  icono: 'tabler:bolt',           esEsencial: true,  subs: ['Electricidad','Agua','Gas doméstico','Internet','Telefonía','Streaming'] },
+    { nombre: 'Alimentación',        peso: 9,  icono: 'tabler:shopping-cart',  esEsencial: true,  subs: ['Supermercado','Comida fuera','Comida rápida','Bebidas'] },
+    { nombre: 'Transporte',          peso: 8,  icono: 'tabler:car',            esEsencial: true,  subs: ['Combustible','Peaje','Mantenimiento vehículo','Uber/Taxi','Seguro vehículo'] },
+    { nombre: 'Salud',               peso: 10, icono: 'tabler:heart-rate',     esEsencial: true,  subs: ['Farmacia','Consultas','Laboratorio','Seguro médico'] },
+    { nombre: 'Deudas',              peso: 9,  icono: 'tabler:credit-card',    esEsencial: true,  subs: ['Tarjeta crédito','Préstamo personal','Préstamo bancario','Deuda familiar'] },
+    { nombre: 'Educación',           peso: 8,  icono: 'tabler:school',         esEsencial: true,  subs: ['Matrícula','Material','Cursos'] },
+    { nombre: 'Familia',             peso: 6,  icono: 'tabler:users',          esEsencial: false, subs: ['Apoyo familiar','Cumpleaños','Día especial'] },
+    { nombre: 'Personal',            peso: 5,  icono: 'tabler:user',           esEsencial: false, subs: ['Higiene','Ropa','Gimnasio'] },
+    { nombre: 'Tecnología',          peso: 4,  icono: 'tabler:device-laptop',  esEsencial: false, subs: ['Suscripciones','Hardware','Software'] },
+    { nombre: 'Ocio',                peso: 3,  icono: 'tabler:device-gamepad', esEsencial: false, subs: ['Entretenimiento','Salidas','Compras online'] },
+    { nombre: 'Imprevistos',         peso: 7,  icono: 'tabler:first-aid-kit',  esEsencial: false, subs: ['Reserva mensual','Emergencias'] },
+    { nombre: 'Impuestos/Comisiones',peso: 10, icono: 'tabler:receipt',        esEsencial: true,  subs: ['DGII','Cargos bancarios','Comisiones'] },
+    { nombre: 'Ingresos',            peso: 10, icono: 'tabler:trending-up',    esEsencial: true,  subs: ['Nómina','Apoyo familiar recibido','Trabajos extra','Bonos','Devoluciones'] },
+    { nombre: 'Transferencia',       peso: 5,  icono: 'tabler:transfer',       esEsencial: false, subs: ['Retiro efectivo','Envío transferencia','Recibir transferencia'] },
   ]
 
   const catMap: Record<string, { id: string; subs: Record<string, string> }> = {}
@@ -30,7 +30,7 @@ async function main() {
   for (const cat of categorias) {
     const created = await prisma.categoria.upsert({
       where: { id: `cat_${cat.nombre.toLowerCase().replace(/[^a-z]/g, '_')}` },
-      update: {},
+      update: { icono: cat.icono },
       create: {
         id: `cat_${cat.nombre.toLowerCase().replace(/[^a-z]/g, '_')}`,
         nombre: cat.nombre,
