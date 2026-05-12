@@ -189,57 +189,56 @@ export async function ejecutarLinea(clienteId: string, lineaId: string, data: {
 
   const fecha = data.fecha ? new Date(data.fecha) : new Date()
 
-  let eventoId: string | null = null
-  let transaccionId: string | null = null
+  // Wrap all writes in a transaction to ensure atomicity
+  return await prisma.$transaction(async (tx) => {
+    let eventoId: string | null = null
+    let transaccionId: string | null = null
 
-  if (data.crearEvento) {
-    // Create a PLANIFICADO evento
-    const evento = await prisma.evento.create({
+    if (data.crearEvento) {
+      const evento = await tx.evento.create({
+        data: {
+          clienteId,
+          nombre: linea.concepto,
+          tipo: linea.tipo === 'INGRESO' ? 'COBRO_PROGRAMADO' : 'PAGO_PROGRAMADO',
+          fecha,
+          presupuestoEstimado: data.montoEjecutado,
+          estado: 'PLANIFICADO',
+          categoriaId: linea.categoriaId ?? undefined,
+          subcategoriaId: linea.subcategoriaId ?? undefined,
+          notas: data.notas ?? `Generado desde presupuesto: ${linea.presupuesto.nombre}`,
+        },
+      })
+      eventoId = evento.id
+    } else {
+      const txRecord = await tx.transaccion.create({
+        data: {
+          clienteId,
+          concepto: linea.concepto,
+          monto: data.montoEjecutado,
+          tipo: linea.tipo === 'INGRESO' ? 'INGRESO' : 'GASTO',
+          estado: 'EJECUTADO',
+          fecha,
+          categoriaId: linea.categoriaId ?? undefined,
+          subcategoriaId: linea.subcategoriaId ?? undefined,
+          cuentaId: data.cuentaId ?? undefined,
+          notas: data.notas ?? `Ejecutado desde presupuesto: ${linea.presupuesto.nombre}`,
+          frecuencia: 'UNICA',
+        },
+      })
+      transaccionId = txRecord.id
+    }
+
+    return tx.ejecucionLinea.create({
       data: {
-        clienteId,
-        nombre: linea.concepto,
-        tipo: linea.tipo === 'INGRESO' ? 'COBRO_PROGRAMADO' : 'PAGO_PROGRAMADO',
+        lineaId,
+        montoEjecutado: data.montoEjecutado,
         fecha,
-        presupuestoEstimado: data.montoEjecutado,
-        estado: 'PLANIFICADO',
-        categoriaId: linea.categoriaId ?? undefined,
-        subcategoriaId: linea.subcategoriaId ?? undefined,
-        notas: data.notas ?? `Generado desde presupuesto: ${linea.presupuesto.nombre}`,
+        notas: data.notas ?? null,
+        eventoId,
+        transaccionId,
       },
     })
-    eventoId = evento.id
-  } else {
-    // Create a direct EJECUTADO transaction
-    const tx = await prisma.transaccion.create({
-      data: {
-        clienteId,
-        concepto: linea.concepto,
-        monto: data.montoEjecutado,
-        tipo: linea.tipo === 'INGRESO' ? 'INGRESO' : 'GASTO',
-        estado: 'EJECUTADO',
-        fecha,
-        categoriaId: linea.categoriaId ?? undefined,
-        subcategoriaId: linea.subcategoriaId ?? undefined,
-        cuentaId: data.cuentaId ?? undefined,
-        notas: data.notas ?? `Ejecutado desde presupuesto: ${linea.presupuesto.nombre}`,
-        frecuencia: 'UNICA',
-      },
-    })
-    transaccionId = tx.id
-  }
-
-  const ejecucion = await prisma.ejecucionLinea.create({
-    data: {
-      lineaId,
-      montoEjecutado: data.montoEjecutado,
-      fecha,
-      notas: data.notas ?? null,
-      eventoId,
-      transaccionId,
-    },
   })
-
-  return ejecucion
 }
 
 // ── Auto-sugerencias ───────────────────────────────────────────────────────
@@ -404,41 +403,44 @@ export async function ejecutarAtomico(clienteId: string, presupuestoId: string, 
   }
   const subcategoriaId = Object.entries(subFreq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
-  // Create the single transaction
-  const tx = await prisma.transaccion.create({
-    data: {
-      clienteId,
-      concepto: data.notas ? `${pres.nombre} — ${data.notas}` : pres.nombre,
-      monto: total,
-      tipo: 'GASTO',
-      estado: 'EJECUTADO',
-      fecha,
-      categoriaId: categoriaId ?? undefined,
-      subcategoriaId: subcategoriaId ?? undefined,
-      cuentaId: data.cuentaId ?? undefined,
-      notas: `Presupuesto atómico: ${lineasIncluidas.length} ítems ejecutados en bloque`,
-      frecuencia: 'UNICA',
-    },
-  })
+  // Wrap all writes in a transaction to ensure atomicity
+  return await prisma.$transaction(async (tx) => {
+    // Create the single transaction
+    const txRecord = await tx.transaccion.create({
+      data: {
+        clienteId,
+        concepto: data.notas ? `${pres.nombre} — ${data.notas}` : pres.nombre,
+        monto: total,
+        tipo: 'GASTO',
+        estado: 'EJECUTADO',
+        fecha,
+        categoriaId: categoriaId ?? undefined,
+        subcategoriaId: subcategoriaId ?? undefined,
+        cuentaId: data.cuentaId ?? undefined,
+        notas: `Presupuesto atómico: ${lineasIncluidas.length} ítems ejecutados en bloque`,
+        frecuencia: 'UNICA',
+      },
+    })
 
-  // Create one EjecucionLinea per included line, all linked to the same transaction
-  await prisma.ejecucionLinea.createMany({
-    data: lineasIncluidas.map(l => ({
-      lineaId: l.id,
-      montoEjecutado: parseNum(l.montoPlaneado),
-      fecha,
-      transaccionId: tx.id,
-      notas: `Parte de ejecución atómica: ${pres.nombre}`,
-    })),
-  })
+    // Create one EjecucionLinea per included line, all linked to the same transaction
+    await tx.ejecucionLinea.createMany({
+      data: lineasIncluidas.map(l => ({
+        lineaId: l.id,
+        montoEjecutado: parseNum(l.montoPlaneado),
+        fecha,
+        transaccionId: txRecord.id,
+        notas: `Parte de ejecución atómica: ${pres.nombre}`,
+      })),
+    })
 
-  // Auto-close the budget after atomic execution
-  await prisma.presupuesto.update({
-    where: { id: presupuestoId },
-    data: { estado: 'CERRADO' },
-  })
+    // Auto-close the budget after atomic execution
+    await tx.presupuesto.update({
+      where: { id: presupuestoId },
+      data: { estado: 'CERRADO' },
+    })
 
-  return { transaccionId: tx.id, total, itemsEjecutados: lineasIncluidas.length }
+    return { transaccionId: txRecord.id, total, itemsEjecutados: lineasIncluidas.length }
+  })
 }
 
 // ── Enrich ─────────────────────────────────────────────────────────────────

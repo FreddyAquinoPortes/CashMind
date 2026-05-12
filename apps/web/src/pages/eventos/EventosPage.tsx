@@ -906,6 +906,7 @@ function EjecutarFormPanel({ evento, cuentas, categorias, onSubmit, onClose, loa
   evento: Evento; cuentas: CuentaBancaria[]; categorias: Categoria[]; loading: boolean; error?: string | null
   onSubmit(cuentaId: string, categoriaId: string, subcategoriaId: string, notas: string): void; onClose(): void
 }) {
+  const fmt = useFmt()
   const [cuentaId,      setCuentaId]      = useState(cuentas[0]?.id ?? '')
   const [categoriaId,   setCategoriaId]   = useState((evento as any).categoriaId ?? '')
   const [subcategoriaId,setSubcategoriaId]= useState((evento as any).subcategoriaId ?? '')
