@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, createContext, useContext } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -7,6 +7,9 @@ import {
 import { Icon } from '@iconify/react'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
+import { useFmt } from '../../lib/useFmt'
+
+const FmtCtx = createContext<(n: number, isTotal?: boolean) => string>(() => '')
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -78,8 +81,7 @@ interface Sugerencia {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+// fmt is provided via FmtCtx — each component calls: const fmt = useContext(FmtCtx)
 
 function periodoLabel(p: Presupuesto) {
   const ini = new Date(p.fechaInicio)
@@ -130,6 +132,7 @@ function Modal({ title, onClose, wide, children }: { title: string; onClose: () 
 
 // ── Mini pie chart showing expense distribution ───────────────────────────
 function DistribucionChart({ lineas }: { lineas: LineaPresupuesto[] }) {
+  const fmt = useContext(FmtCtx)
   const gastos = lineas.filter(l => l.tipo === 'GASTO' && l.montoPlaneado > 0)
   if (gastos.length === 0) return (
     <div className="flex items-center justify-center h-48 text-text-muted text-sm">
@@ -156,6 +159,7 @@ function DistribucionChart({ lineas }: { lineas: LineaPresupuesto[] }) {
 
 // ── Cumplimiento bar chart ────────────────────────────────────────────────
 function CumplimientoChart({ lineas }: { lineas: LineaPresupuesto[] }) {
+  const fmt = useContext(FmtCtx)
   const data = lineas.filter(l => l.montoPlaneado > 0).map(l => ({
     name: l.concepto.length > 14 ? l.concepto.slice(0, 13) + '…' : l.concepto,
     Planeado: l.montoPlaneado,
@@ -189,6 +193,7 @@ function LineaRow({
   onDelete: (id: string) => void
   onEjecutar: (l: LineaPresupuesto) => void
 }) {
+  const fmt = useContext(FmtCtx)
   const isIngreso = linea.tipo === 'INGRESO'
   const pct = linea.cumplimiento
 
@@ -378,6 +383,7 @@ function SugerenciasPanel({
   onAgregar: (s: Sugerencia) => void
   onCerrar: () => void
 }) {
+  const fmt = useContext(FmtCtx)
   const [selected, setSelected] = useState<Set<number>>(new Set(sugerencias.map((_, i) => i)))
 
   const toggle = (i: number) => setSelected(prev => {
@@ -433,6 +439,7 @@ function EjecutarLineaForm({
   onClose: () => void
   loading: boolean
 }) {
+  const fmt = useContext(FmtCtx)
   const [monto, setMonto] = useState(linea.montoPlaneado.toString())
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
   const [crearEvento, setCrearEvento] = useState(false)
@@ -487,6 +494,7 @@ function AtomicoView({
   onEjecutarTodo: () => void
   ejecutando: boolean
 }) {
+  const fmt = useContext(FmtCtx)
   const lineas = presupuesto.lineas
   const incluidas = lineas.filter(l => l.incluido)
   const total = incluidas.reduce((s, l) => s + l.montoPlaneado, 0)
@@ -611,6 +619,7 @@ function AtomicoView({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function PresupuestosPage() {
+  const fmt = useFmt()
   const qc = useQueryClient()
   const clienteId = useAuthStore(s => s.clienteActivo?.id) ?? ''
 
@@ -738,6 +747,7 @@ export function PresupuestosPage() {
   const readOnly = presupuesto?.estado === 'CERRADO'
 
   return (
+    <FmtCtx.Provider value={fmt}>
     <div className="flex flex-col gap-6 max-w-7xl mx-auto">
       {toast && <Toast {...toast} />}
 
@@ -1229,6 +1239,7 @@ export function PresupuestosPage() {
         )
       })()}
     </div>
+    </FmtCtx.Provider>
   )
 }
 
@@ -1243,6 +1254,7 @@ function EjecutarAtomicoConfirm({
   onClose: () => void
   onSubmit: (d: { fecha: string; notas?: string; cuentaId?: string }) => void
 }) {
+  const fmt = useFmt()
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
   const [notas, setNotas] = useState('')
 

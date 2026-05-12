@@ -12,6 +12,7 @@ import { DeudasPage } from './pages/deudas/DeudasPage'
 import { EventosPage } from './pages/eventos/EventosPage'
 import { CombustiblePage } from './pages/combustible/CombustiblePage'
 import { PresupuestosPage } from './pages/presupuestos/PresupuestosPage'
+import { AjustesPage } from './pages/ajustes/AjustesPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore(s => s.user)
@@ -46,7 +47,7 @@ export default function App() {
         <Route path="proyecciones"  element={<ComingSoon title="Proyecciones" />} />
         <Route path="reportes"      element={<ComingSoon title="Reportes" />} />
         <Route path="importacion"   element={<ComingSoon title="Importación" />} />
-        <Route path="ajustes"       element={<ComingSoon title="Ajustes" />} />
+        <Route path="ajustes"       element={<AjustesPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { MapContainer, TileLayer, Marker, Polyline, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
+import { useFmt } from '../../lib/useFmt'
 
 // Fix Leaflet marker icons en Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -33,7 +34,7 @@ interface CalcRuta { id: string; nombre: string; distanciaKm: number; vecesPorSe
 interface Calculo { preciosPorTipo: Record<string, number>; rutas: CalcRuta[]; totales: { kmSemanal: number; kmMensual: number; costoTotal: number; costoNeto: number } }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-const fmt = (n: number) => new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+const FmtCtx = createContext<(n: number, isTotal?: boolean) => string>(() => '')
 const fmtDec = (n: number, d = 2) => n.toLocaleString('es-DO', { minimumFractionDigits: d, maximumFractionDigits: d })
 
 // ── Geolocalización + contexto de país ────────────────────────────────────
@@ -480,6 +481,7 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose }: {
 
 // ── Tab: Resumen ───────────────────────────────────────────────────────────
 function TabResumen({ cid }: { cid: string }) {
+  const fmt = useFmt()
   const { data: calculo, isLoading } = useQuery<Calculo>({
     queryKey: ['combustible-calculo', cid],
     queryFn: async () => (await api.get(`/clientes/${cid}/combustible/calculo`)).data.data,
@@ -1194,6 +1196,7 @@ function TabPrecios() {
 interface TPViaje { id: string; nombre: string; costoPorViaje: number; vecesPorSemana: number }
 
 function TabTransportePublico() {
+  const fmt = useFmt()
   const LS_KEY = 'cm_transp_publico'
   const load = (): TPViaje[] => { try { return JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') } catch { return [] } }
   const [viajes, setViajes] = useState<TPViaje[]>(load)

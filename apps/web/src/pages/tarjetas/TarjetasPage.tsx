@@ -2,13 +2,10 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
+import { useFmt } from '../../lib/useFmt'
 import type { TarjetaCredito, Franquicia, TipoTarjeta, CategoriaTarjeta } from '../../lib/types'
 import { BANCOS_RD, FRANQUICIAS, TIPOS_TARJETA, CATEGORIAS_TARJETA, MONEDAS } from '../../lib/constants'
 import { PlusIcon, CreditCardIcon } from '@heroicons/react/24/outline'
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-const fmt = (n: string | number) =>
-  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2 }).format(parseFloat(String(n)))
 
 const FRANQ_COLORS: Record<string, string> = {
   VISA: '#1a1f71', MASTERCARD: '#eb001b', AMEX: '#007bc1', DISCOVER: '#ff6600',
@@ -161,6 +158,7 @@ type ModalState =
   | null
 
 export function TarjetasPage() {
+  const fmt = useFmt()
   const qc = useQueryClient()
   const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
   const { data: tarjetas = [], isLoading } = useQuery<TarjetaCredito[]>({

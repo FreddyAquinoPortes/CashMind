@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
+import { useFmt } from '../../lib/useFmt'
 import type { Evento, TipoEvento, EstadoEvento, TipoRecurrencia, CuentaBancaria, Persona, Categoria, Subcategoria } from '../../lib/types'
 import {
   PlusIcon, ChevronLeftIcon, ChevronRightIcon, CalendarDaysIcon,
@@ -38,8 +39,7 @@ const parseLocalDate = (iso: string) => {
   return new Date(y!, m! - 1, d!)
 }
 
-const fmt = (n: string | number) =>
-  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2 }).format(parseFloat(String(n)))
+// fmt is provided per-component via useFmt() hook — see each component below
 
 const fmtDate = (iso: string) => {
   const [y, m, d] = iso.slice(0, 10).split('-')
@@ -1007,6 +1007,7 @@ const toPayload = (f: EventoForm) => ({
 })
 
 export function EventosPage() {
+  const fmt = useFmt()
   const qc  = useQueryClient()
   const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
 

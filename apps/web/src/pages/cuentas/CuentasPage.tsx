@@ -2,15 +2,10 @@ import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
+import { useFmt } from '../../lib/useFmt'
 import type { CuentaBancaria, TipoCuenta } from '../../lib/types'
 import { BANCOS_RD, TIPOS_CUENTA, MONEDAS } from '../../lib/constants'
 import { PlusIcon, BuildingLibraryIcon } from '@heroicons/react/24/outline'
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-const fmt = (n: string | number) =>
-  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2 }).format(
-    parseFloat(String(n))
-  )
 
 const TIPO_LABELS: Record<TipoCuenta, string> = {
   CORRIENTE: 'Corriente',
@@ -132,6 +127,7 @@ type ModalState =
   | null
 
 export function CuentasPage() {
+  const fmt = useFmt()
   const qc = useQueryClient()
   const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
   const { data: cuentas = [], isLoading } = useQuery<CuentaBancaria[]>({

@@ -2,13 +2,10 @@ import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
+import { useFmt } from '../../lib/useFmt'
 import type { Deuda, TipoDeuda, TipoPlazo, EstadoDeuda, Persona, PagoDeuda } from '../../lib/types'
 import { TIPOS_DEUDA, MONEDAS } from '../../lib/constants'
 import { PlusIcon, ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-const fmt = (n: string | number) =>
-  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2 }).format(parseFloat(String(n)))
 
 const ESTADO_COLORS: Record<EstadoDeuda, string> = {
   ACTIVA: '#22c55e', SALDADA: '#6366f1', EN_MORA: '#ef4444',
@@ -50,6 +47,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 
 // ── Progress Bar ───────────────────────────────────────────────────────────
 function DeudaProgress({ saldo, original, compact }: { saldo: string; original: string; compact?: boolean }) {
+  const fmt = useFmt()
   const s = parseFloat(String(saldo))
   const o = parseFloat(String(original))
   const pct = o > 0 ? (s / o) * 100 : 0
@@ -215,6 +213,7 @@ function PagoFormPanel({ deuda, onSubmit, onClose, loading, error }: {
   deuda: Deuda; onSubmit(monto: number, notas: string): void
   onClose(): void; loading: boolean; error?: string | null
 }) {
+  const fmt = useFmt()
   const [monto, setMonto] = useState('')
   const [notas, setNotas] = useState('')
   const saldo = parseFloat(String(deuda.saldoActual))
@@ -254,6 +253,7 @@ function DeudaRow({ d, onEdit, onDelete, onPago }: {
   onDelete(d: Deuda): void
   onPago(d: Deuda): void
 }) {
+  const fmt = useFmt()
   const [open, setOpen] = useState(false)
   const color     = ESTADO_COLORS[d.estado]
   const tipoLabel = TIPOS_DEUDA.find(t => t.value === d.tipo)?.label ?? d.tipo
@@ -415,6 +415,7 @@ function PersonaGroupCard({
   onDelete(d: Deuda): void
   onPago(d: Deuda): void
 }) {
+  const fmt = useFmt()
   const [open, setOpen] = useState(true)
 
   const filtered = deudas.filter(d => !filtroEstado || d.estado === filtroEstado)
@@ -524,6 +525,7 @@ const toPayload = (d: DeudaForm) => ({
 })
 
 export function DeudasPage() {
+  const fmt = useFmt()
   const qc = useQueryClient()
   const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
   const { data: deudas = [], isLoading } = useQuery<Deuda[]>({
