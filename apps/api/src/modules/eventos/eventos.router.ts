@@ -27,14 +27,14 @@ eventosRouter.post('/clientes/:clienteId/eventos', requireAuth, async (req: Auth
 
 eventosRouter.patch('/eventos/:id', requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const clienteId = req.query.clienteId as string || ''
+    const clienteId = req.query.clienteId as string || req.body.clienteId || ''
     res.json({ data: await svc.actualizar(req.params.id!, clienteId, req.body) })
   } catch (err) { next(err) }
 })
 
 eventosRouter.delete('/eventos/:id', requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const clienteId = req.query.clienteId as string || ''
+    const clienteId = req.query.clienteId as string || req.body.clienteId || ''
     await svc.eliminar(req.params.id!, clienteId)
     res.json({ data: { ok: true } })
   } catch (err) { next(err) }
