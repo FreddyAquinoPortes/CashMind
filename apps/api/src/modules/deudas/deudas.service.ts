@@ -22,9 +22,10 @@ export class DeudasService {
     return prisma.deuda.create({
       data: {
         clienteId,
+        concepto: d.concepto,
         tipo: d.tipo,
         montoOriginal: d.montoOriginal,
-        saldoActual: d.saldoActual,
+        saldoActual: d.saldoActual ?? d.montoOriginal,
         moneda: d.moneda ?? 'DOP',
         fechaInicio: d.fechaInicio,
         tipoPlazo: d.tipoPlazo,
