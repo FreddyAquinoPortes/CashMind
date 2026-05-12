@@ -79,7 +79,7 @@ interface Sugerencia {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const fmt = (n: number) =>
-  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', maximumFractionDigits: 0 }).format(n)
+  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
 function periodoLabel(p: Presupuesto) {
   const ini = new Date(p.fechaInicio)

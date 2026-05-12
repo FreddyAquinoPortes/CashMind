@@ -33,7 +33,7 @@ interface CalcRuta { id: string; nombre: string; distanciaKm: number; vecesPorSe
 interface Calculo { preciosPorTipo: Record<string, number>; rutas: CalcRuta[]; totales: { kmSemanal: number; kmMensual: number; costoTotal: number; costoNeto: number } }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-const fmt = (n: number) => new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n)
+const fmt = (n: number) => new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 const fmtDec = (n: number, d = 2) => n.toLocaleString('es-DO', { minimumFractionDigits: d, maximumFractionDigits: d })
 
 // ── Geolocalización + contexto de país ────────────────────────────────────
