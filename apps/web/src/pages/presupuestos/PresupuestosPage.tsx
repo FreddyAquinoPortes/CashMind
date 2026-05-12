@@ -642,7 +642,12 @@ export function PresupuestosPage() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['presupuestos', clienteId] })
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['presupuestos', clienteId] })
+    qc.invalidateQueries({ queryKey: ['dashboard', clienteId] })
+    qc.invalidateQueries({ queryKey: ['cuentas', clienteId] })
+    qc.invalidateQueries({ queryKey: ['transacciones'] })
+  }
 
   // ── Queries ──────────────────────────────────────────────────────────────
 

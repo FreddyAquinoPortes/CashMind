@@ -403,6 +403,11 @@ export async function ejecutarAtomico(clienteId: string, presupuestoId: string, 
   }
   const subcategoriaId = Object.entries(subFreq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
+  // Derive transaction type from included lines
+  const hasIngreso = lineasIncluidas.some(l => l.tipo === 'INGRESO')
+  const hasGasto   = lineasIncluidas.some(l => l.tipo === 'GASTO')
+  const tipoTx = hasIngreso && !hasGasto ? 'INGRESO' : 'GASTO'
+
   // Wrap all writes in a transaction to ensure atomicity
   return await prisma.$transaction(async (tx) => {
     // Create the single transaction
@@ -411,7 +416,7 @@ export async function ejecutarAtomico(clienteId: string, presupuestoId: string, 
         clienteId,
         concepto: data.notas ? `${pres.nombre} — ${data.notas}` : pres.nombre,
         monto: total,
-        tipo: 'GASTO',
+        tipo: tipoTx,
         estado: 'EJECUTADO',
         fecha,
         categoriaId: categoriaId ?? undefined,
