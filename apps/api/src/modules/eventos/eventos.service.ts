@@ -76,8 +76,9 @@ export class EventosService {
   }
 
   async obtener(id: string, clienteId: string) {
+    const where: any = clienteId ? { id, clienteId } : { id }
     const ev = await prisma.evento.findFirst({
-      where: { id, clienteId },
+      where,
       include: {
         persona:      { select: { id: true, nombre: true, apellido: true } },
         categoria:    { select: { id: true, nombre: true, color: true, icono: true } },
