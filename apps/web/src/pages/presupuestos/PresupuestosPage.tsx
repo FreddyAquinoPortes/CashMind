@@ -278,7 +278,7 @@ function LineaForm({
       </label>
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Monto planeado (DOP) *
-        <input required type="number" min="1" step="1" value={monto} onChange={e => setMonto(e.target.value)} className="input" placeholder="0" />
+        <input required type="number" min="0.01" step="0.01" value={monto} onChange={e => setMonto(e.target.value)} className="input" placeholder="0.00" />
       </label>
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Notas
@@ -447,7 +447,7 @@ function EjecutarLineaForm({
       </div>
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Monto ejecutado (DOP) *
-        <input required type="number" min="1" step="1" value={monto} onChange={e => setMonto(e.target.value)} className="input" autoFocus />
+        <input required type="number" min="0.01" step="0.01" value={monto} onChange={e => setMonto(e.target.value)} className="input" autoFocus />
       </label>
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Fecha
