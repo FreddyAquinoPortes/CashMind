@@ -139,31 +139,81 @@ export class DeudasService {
   async update(id: string, body: unknown) {
     const d = deudaSchema.partial().parse(body)
 
+    // Load current state to fill in values not present in the patch
+    const current = await prisma.deuda.findUniqueOrThrow({ where: { id } })
+
     // Recalculate fechaFin if numeroCuotas or fechaInicio changed while plazo=FIJO
+    const tipoPlazo  = d.tipoPlazo  ?? current.tipoPlazo
+    const nCuotas    = d.numeroCuotas ?? current.numeroCuotas
+    const fechaInicio = d.fechaInicio ?? current.fechaInicio
     let fechaFin = d.fechaFin
-    if (d.tipoPlazo === 'FIJO' && d.numeroCuotas && d.fechaInicio && !d.fechaFin) {
-      fechaFin = addMonths(d.fechaInicio, d.numeroCuotas)
+    if (tipoPlazo === 'FIJO' && nCuotas && !d.fechaFin) {
+      fechaFin = addMonths(fechaInicio, nCuotas)
     }
 
-    return prisma.deuda.update({
+    const updatedDeuda = await prisma.deuda.update({
       where: { id },
       data: {
-        ...(d.tipo !== undefined && { tipo: d.tipo }),
+        ...(d.concepto    !== undefined && { concepto: d.concepto }),
+        ...(d.tipo        !== undefined && { tipo: d.tipo }),
         ...(d.montoOriginal !== undefined && { montoOriginal: d.montoOriginal }),
         ...(d.saldoActual !== undefined && { saldoActual: d.saldoActual }),
-        ...(d.moneda !== undefined && { moneda: d.moneda }),
+        ...(d.moneda      !== undefined && { moneda: d.moneda }),
         ...(d.fechaInicio !== undefined && { fechaInicio: d.fechaInicio }),
-        ...(d.tipoPlazo !== undefined && { tipoPlazo: d.tipoPlazo }),
+        ...(d.tipoPlazo   !== undefined && { tipoPlazo: d.tipoPlazo }),
         ...(d.acreedorTexto !== undefined && { acreedorTexto: d.acreedorTexto ?? null }),
-        ...(d.personaId !== undefined && { personaId: d.personaId ?? null }),
-        ...(fechaFin !== undefined && { fechaFin: fechaFin ?? null }),
+        ...(d.personaId   !== undefined && { personaId: d.personaId ?? null }),
+        ...(fechaFin      !== undefined && { fechaFin: fechaFin ?? null }),
         ...(d.tasaInteres !== undefined && { tasaInteres: d.tasaInteres ?? null }),
         ...(d.numeroCuotas !== undefined && { numeroCuotas: d.numeroCuotas ?? null }),
-        ...(d.diaCobro !== undefined && { diaCobro: d.diaCobro ?? null }),
-        ...(d.notas !== undefined && { notas: d.notas ?? null }),
-        ...(d.estado !== undefined && { estado: d.estado }),
+        ...(d.diaCobro    !== undefined && { diaCobro: d.diaCobro ?? null }),
+        ...(d.notas       !== undefined && { notas: d.notas ?? null }),
+        ...(d.estado      !== undefined && { estado: d.estado }),
       },
     })
+
+    // ── Sync pending (PLANIFICADO) events ───────────────────────────────────
+    // Recalculate when any amount/rate/term/date/concepto field was touched
+    const affectsEvents = [
+      d.montoOriginal, d.tasaInteres, d.numeroCuotas,
+      d.fechaInicio, d.concepto,
+    ].some(v => v !== undefined)
+
+    if (affectsEvents && tipoPlazo === 'FIJO' && nCuotas && nCuotas > 0) {
+      const effectiveMonto  = Number(d.montoOriginal  ?? current.montoOriginal)
+      const effectiveTasa   = Number(d.tasaInteres    ?? current.tasaInteres  ?? 0)
+      const effectiveConcepto = d.concepto ?? current.concepto
+
+      const nuevaCuota = Math.round(
+        calcMontoCuota(effectiveMonto, effectiveTasa, nCuotas) * 100,
+      ) / 100
+
+      const pendingEvents = await prisma.evento.findMany({
+        where: { deudaId: id, estado: 'PLANIFICADO' },
+        orderBy: { numeroCuota: 'asc' },
+      })
+
+      await Promise.all(
+        pendingEvents.map(ev =>
+          prisma.evento.update({
+            where: { id: ev.id },
+            data: {
+              presupuestoEstimado: nuevaCuota,
+              // Rename event if concepto changed
+              ...(d.concepto !== undefined && ev.numeroCuota !== null && {
+                nombre: `${effectiveConcepto} — Cuota ${ev.numeroCuota}/${nCuotas}`,
+              }),
+              // Shift date if fechaInicio changed
+              ...(d.fechaInicio !== undefined && ev.numeroCuota !== null && {
+                fecha: addMonths(fechaInicio, ev.numeroCuota),
+              }),
+            },
+          }),
+        ),
+      )
+    }
+
+    return updatedDeuda
   }
 
   async remove(id: string) {
