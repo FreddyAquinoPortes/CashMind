@@ -38,7 +38,7 @@ COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
 # Copy prisma schema & generate client
 COPY apps/api/prisma ./apps/api/prisma
-RUN npx --prefix apps/api prisma generate
+RUN cd apps/api && npx prisma generate --schema=./prisma/schema.prisma
 
 EXPOSE 3001
 
