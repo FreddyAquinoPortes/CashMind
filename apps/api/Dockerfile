@@ -22,6 +22,8 @@ RUN npm run build --workspace=apps/api
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS runtime
 
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 # Copy workspace manifests for production install
