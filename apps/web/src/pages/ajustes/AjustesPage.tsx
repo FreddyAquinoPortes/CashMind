@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import { usePreferenciasStore, type PrecisionDecimal, type FormatoFecha } from '../../store/preferencias.store'
 import { useFmt } from '../../lib/useFmt'
+import { useAuthStore } from '../../store/auth.store'
+import { api } from '../../lib/api'
 import {
   Hash, Eye, EyeOff, Calendar, AlignJustify,
-  BarChart2, RotateCcw, Check, DollarSign, Type
+  BarChart2, RotateCcw, Check, Shield, Loader2, Copy, CheckCheck
 } from 'lucide-react'
+import { cn } from '../../lib/utils'
 
 // ── Helpers UI ─────────────────────────────────────────────────────────────
 function Section({ title, icon: Icon, children }: {
@@ -100,6 +104,194 @@ function Preview() {
         ))}
       </div>
     </div>
+  )
+}
+
+// ── Sección 2FA ───────────────────────────────────────────────────────────
+type MfaStep = 'idle' | 'setup' | 'confirm' | 'backupCodes' | 'disabling'
+
+function SecuritySection() {
+  const user = useAuthStore(s => s.user)
+  const [mfaEnabled, setMfaEnabled] = useState(false) // Se cargaría del perfil real
+  const [step, setStep]           = useState<MfaStep>('idle')
+  const [qrDataUrl, setQrDataUrl] = useState('')
+  const [secret, setSecret]       = useState('')
+  const [confirmCode, setConfirmCode] = useState('')
+  const [disableCode, setDisableCode] = useState('')
+  const [backupCodes, setBackupCodes] = useState<string[]>([])
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+  const [copied, setCopied]       = useState(false)
+
+  if (!user) return null
+
+  async function handleEnableMfa() {
+    setError(null)
+    setLoading(true)
+    try {
+      const { data } = await api.get('/auth/mfa/setup')
+      setQrDataUrl(data.data.qrDataUrl)
+      setSecret(data.data.secret)
+      setStep('setup')
+    } catch {
+      setError('Error al iniciar configuración de 2FA')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleConfirmMfa(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+    try {
+      const { data } = await api.post('/auth/mfa/confirm', { code: confirmCode, secret })
+      setBackupCodes(data.data.backupCodes)
+      setMfaEnabled(true)
+      setStep('backupCodes')
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+      setError(msg ?? 'Código incorrecto')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleDisableMfa(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+    try {
+      await api.delete('/auth/mfa', { data: { code: disableCode } })
+      setMfaEnabled(false)
+      setStep('idle')
+      setDisableCode('')
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+      setError(msg ?? 'Código incorrecto')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function copyBackupCodes() {
+    navigator.clipboard.writeText(backupCodes.join('\n'))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const inputCls = cn(
+    'w-full px-3 py-2 rounded-md text-sm bg-background border border-border',
+    'text-text-primary placeholder:text-text-muted',
+    'focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-colors'
+  )
+
+  return (
+    <Section title="Seguridad" icon={Shield}>
+      <Row label="Verificación en dos pasos (2FA)"
+        description={mfaEnabled ? 'Activo — se requiere código TOTP al iniciar sesión' : 'Agrega una capa extra de seguridad a tu cuenta'}>
+        <Toggle value={mfaEnabled} onChange={v => {
+          if (v) { handleEnableMfa() }
+          else { setStep('disabling'); setError(null) }
+        }} />
+      </Row>
+
+      {/* Setup: mostrar QR */}
+      {step === 'setup' && (
+        <div className="px-5 pb-5 space-y-4">
+          <p className="text-xs text-text-muted">
+            Escanea este código QR con tu app autenticadora (Google Authenticator, Authy, etc.)
+          </p>
+          {qrDataUrl && (
+            <div className="flex justify-center">
+              <img src={qrDataUrl} alt="QR 2FA" className="w-48 h-48 rounded-lg border border-border" />
+            </div>
+          )}
+          <p className="text-xs text-text-muted text-center">
+            O ingresa manualmente: <code className="bg-background px-1 py-0.5 rounded text-primary text-xs font-mono">{secret}</code>
+          </p>
+          <form onSubmit={handleConfirmMfa} className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-text-secondary">Código de confirmación</label>
+              <input type="text" inputMode="numeric" maxLength={6} value={confirmCode}
+                onChange={e => setConfirmCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000" required className={cn(inputCls, 'text-center text-lg font-bold tracking-widest mt-1')} />
+            </div>
+            {error && <p className="text-xs text-danger">{error}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => { setStep('idle'); setError(null) }}
+                className="flex-1 py-2 rounded-lg text-xs text-text-muted border border-border hover:border-border/70 transition-colors">
+                Cancelar
+              </button>
+              <button type="submit" disabled={loading || confirmCode.length < 6}
+                className="flex-1 py-2 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors">
+                {loading && <Loader2 size={12} className="animate-spin" />}
+                Activar 2FA
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Backup codes */}
+      {step === 'backupCodes' && (
+        <div className="px-5 pb-5 space-y-3">
+          <div className="p-3 bg-warning/10 border border-warning/20 rounded-lg">
+            <p className="text-xs font-medium text-warning mb-1">Guarda estos códigos ahora</p>
+            <p className="text-xs text-text-muted">Son de un solo uso y no se mostrarán de nuevo. Úsalos si pierdes acceso a tu autenticadora.</p>
+          </div>
+          <div className="bg-background border border-border rounded-lg p-3 font-mono text-sm grid grid-cols-2 gap-1">
+            {backupCodes.map(c => (
+              <span key={c} className="text-text-primary text-xs">{c}</span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={copyBackupCodes}
+              className="flex-1 py-2 rounded-lg text-xs text-text-muted border border-border hover:border-primary/40 flex items-center justify-center gap-1.5 transition-colors">
+              {copied ? <CheckCheck size={12} className="text-success" /> : <Copy size={12} />}
+              {copied ? 'Copiado' : 'Copiar'}
+            </button>
+            <button onClick={() => setStep('idle')}
+              className="flex-1 py-2 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary-hover transition-colors">
+              Listo
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Deshabilitar */}
+      {step === 'disabling' && (
+        <div className="px-5 pb-5 space-y-3">
+          <p className="text-xs text-text-muted">Ingresa tu código TOTP para confirmar que deseas deshabilitar el 2FA.</p>
+          <form onSubmit={handleDisableMfa} className="space-y-3">
+            <input type="text" inputMode="numeric" maxLength={6} value={disableCode}
+              onChange={e => setDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000" required className={cn(inputCls, 'text-center text-lg font-bold tracking-widest')} />
+            {error && <p className="text-xs text-danger">{error}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => { setStep('idle'); setError(null) }}
+                className="flex-1 py-2 rounded-lg text-xs text-text-muted border border-border hover:border-border/70 transition-colors">
+                Cancelar
+              </button>
+              <button type="submit" disabled={loading || disableCode.length < 6}
+                className="flex-1 py-2 rounded-lg text-xs font-medium bg-danger text-white hover:bg-danger/80 disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors">
+                {loading && <Loader2 size={12} className="animate-spin" />}
+                Deshabilitar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {loading && step === 'idle' && (
+        <div className="px-5 pb-4 flex items-center gap-2 text-xs text-text-muted">
+          <Loader2 size={12} className="animate-spin" /> Cargando...
+        </div>
+      )}
+      {error && step === 'idle' && (
+        <div className="px-5 pb-4 text-xs text-danger">{error}</div>
+      )}
+    </Section>
   )
 }
 
@@ -225,6 +417,9 @@ export function AjustesPage() {
           <Toggle value={prefs.animacionesGraficos} onChange={v => set('animacionesGraficos', v)} />
         </Row>
       </Section>
+
+      {/* ── Sección: Seguridad ─────────────────────────────────────────── */}
+      <SecuritySection />
 
       {/* Footer info */}
       <p className="text-xs text-text-muted text-center pb-4">

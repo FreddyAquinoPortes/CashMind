@@ -111,18 +111,74 @@ enum TipoPresupuesto {
 
 // =================== USUARIOS Y CLIENTES ===================
 model Usuario {
-  id               String    @id @default(cuid())
-  email            String    @unique
+  id               String              @id @default(cuid())
+  email            String              @unique
   passwordHash     String
   nombre           String
-  rol              Rol       @default(CLIENTE)
+  rol              Rol                 @default(CLIENTE)
   ultimoLogin      DateTime?
-  intentosFallidos Int       @default(0)
+  intentosFallidos Int                 @default(0)
   bloqueadoHasta   DateTime?
+  // ── Auth features ──────────────────────────────────────────────────────────
+  emailVerificado  Boolean             @default(false)
+  mfaHabilitado    Boolean             @default(false)
+  mfaSecret        String?
+  mfaBackupCodes   String[]
+  // ── Relations ──────────────────────────────────────────────────────────────
   clientes         Cliente[]
   apiKeys          ApiKey[]
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  sesiones         SesionActiva[]
+  cuentasOAuth     CuentaOAuth[]
+  tokens           TokenVerificacion[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+// Token de verificación de email y MFA temporal
+// Seguridad: tokens de un solo uso con expiración corta
+model TokenVerificacion {
+  id        String   @id @default(cuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipo      String   // EMAIL_VERIFY | MFA_TEMP
+  token     String   @unique
+  expiraEn  DateTime
+  usado     Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([usuarioId, tipo])
+}
+
+// Sesiones activas con refresh tokens almacenados en DB para poder revocarlos
+// Seguridad: permite invalidar sesiones específicas o todas las sesiones de un usuario
+model SesionActiva {
+  id              String   @id @default(cuid())
+  usuarioId       String
+  usuario         Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  refreshToken    String   @unique
+  dispositivo     String?
+  ip              String?
+  ultimaActividad DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([usuarioId])
+}
+
+// Cuentas OAuth vinculadas (Google, GitHub, etc.)
+model CuentaOAuth {
+  id          String   @id @default(cuid())
+  usuarioId   String
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  proveedor   String
+  proveedorId String
+  email       String?
+  nombre      String?
+  avatar      String?
+  createdAt   DateTime @default(now())
+
+  @@unique([proveedor, proveedorId])
+  @@index([usuarioId])
 }
 
 model Cliente {
