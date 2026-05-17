@@ -9,6 +9,7 @@ export const deudaSchema = z.object({
   acreedorTexto: z.string().optional(),
   personaId: z.string().optional(),
   tipo: TipoDeuda,
+  estado: EstadoDeuda.optional(),
   montoOriginal: z.number().positive(),
   saldoActual: z.number().min(0).optional(),
   moneda: z.string().default('DOP'),
