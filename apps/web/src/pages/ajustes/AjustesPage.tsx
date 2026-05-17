@@ -48,7 +48,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange(v: boolean): voi
   )
 }
 
-function Chips<T extends string>({
+function Chips<T extends string | number>({
   options, value, onChange,
 }: {
   options: { value: T; label: string }[]
