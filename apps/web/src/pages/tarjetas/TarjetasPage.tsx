@@ -11,7 +11,6 @@ const FRANQ_COLORS: Record<string, string> = {
   VISA: '#1a1f71', MASTERCARD: '#eb001b', AMEX: '#007bc1', DISCOVER: '#ff6600',
 }
 
-const CUOTAS_OPCIONES = [3, 6, 9, 12, 18, 24, 36]
 
 function calcMontoCuota(monto: number, tasaInteres: number, numeroCuotas: number): number {
   if (!monto || !numeroCuotas) return 0
@@ -328,9 +327,11 @@ function NuevoExtraCreditoModal({
           </label>
           <label className="flex flex-col gap-1 text-sm text-text-secondary">
             Número de cuotas
-            <select value={form.numeroCuotas} onChange={set('numeroCuotas')} className="input">
-              {CUOTAS_OPCIONES.map(n => <option key={n} value={n}>{n} meses</option>)}
-            </select>
+            <input
+              required type="number" min="1" max="360" step="1"
+              value={form.numeroCuotas} onChange={set('numeroCuotas')}
+              className="input" placeholder="Ej. 12"
+            />
           </label>
         </div>
 
