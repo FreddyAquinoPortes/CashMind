@@ -847,22 +847,28 @@ export function DeudasPage() {
         <Modal title="Editar deuda" onClose={closeModal}>
           <DeudaFormPanel
             isEdit
-            initial={{
-              personaId: modal.deuda.personaId ?? '',
-              concepto: modal.deuda.concepto ?? '',
-              tipo: modal.deuda.tipo,
-              montoOriginal: String(modal.deuda.montoOriginal),
-              saldoActual: String(modal.deuda.saldoActual),
-              moneda: modal.deuda.moneda,
-              fechaInicio: modal.deuda.fechaInicio.slice(0, 10),
-              fechaFin: modal.deuda.fechaFin?.slice(0, 10) ?? '',
-              tasaInteres: String(modal.deuda.tasaInteres ?? ''),
-              tipoPlazo: modal.deuda.tipoPlazo,
-              numeroCuotas: String(modal.deuda.numeroCuotas ?? ''),
-              diaCobro: String(modal.deuda.diaCobro ?? ''),
-              estado: modal.deuda.estado,
-              notas: modal.deuda.notas ?? '',
-            }}
+            initial={(() => {
+              const mOrig = parseFloat(String(modal.deuda.montoOriginal)) || 0
+              const nC    = parseInt(String(modal.deuda.numeroCuotas ?? 0)) || 0
+              const tasa  = parseFloat(String(modal.deuda.tasaInteres ?? 0)) || 0
+              return {
+                personaId: modal.deuda.personaId ?? '',
+                concepto: modal.deuda.concepto ?? '',
+                tipo: modal.deuda.tipo,
+                montoOriginal: String(modal.deuda.montoOriginal),
+                saldoActual: String(modal.deuda.saldoActual),
+                moneda: modal.deuda.moneda,
+                fechaInicio: modal.deuda.fechaInicio.slice(0, 10),
+                fechaFin: modal.deuda.fechaFin?.slice(0, 10) ?? '',
+                tasaInteres: String(modal.deuda.tasaInteres ?? ''),
+                montoCuota: mOrig > 0 && nC > 0 ? calcMontoCuota(mOrig, tasa, nC).toFixed(2) : '',
+                tipoPlazo: modal.deuda.tipoPlazo,
+                numeroCuotas: String(modal.deuda.numeroCuotas ?? ''),
+                diaCobro: String(modal.deuda.diaCobro ?? ''),
+                estado: modal.deuda.estado,
+                notas: modal.deuda.notas ?? '',
+              }
+            })()}
             personas={personas} onClose={closeModal} loading={update.isPending} error={modal.error}
             onSubmit={(d) => update.mutate({ id: modal.deuda.id, d: toPayload(d) })} />
         </Modal>
