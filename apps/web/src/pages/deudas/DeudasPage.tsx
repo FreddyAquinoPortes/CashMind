@@ -185,20 +185,41 @@ function DeudaFormPanel({
             <option value="FLEXIBLE">Flexible</option>
           </select>
         </label>
-        {isFijo ? (
+        {isFijo && (
           <label className="flex flex-col gap-1 text-sm text-text-secondary">
             N° cuotas *
-            <input required={isFijo} type="number" min="1" value={form.numeroCuotas}
+            <input required type="number" min="1" value={form.numeroCuotas}
               onChange={set('numeroCuotas')} className="input" placeholder="12" />
-          </label>
-        ) : (
-          <label className="flex flex-col gap-1 text-sm text-text-secondary">
-            Tasa de interés %
-            <input type="number" step="0.01" min="0" max="100" value={form.tasaInteres}
-              onChange={set('tasaInteres')} className="input" placeholder="0.00" />
           </label>
         )}
       </div>
+
+      {/* Tasa siempre visible (para FIJO calcula cuota, para FLEXIBLE es informativa) */}
+      <label className="flex flex-col gap-1 text-sm text-text-secondary">
+        Tasa de interés %
+        <input type="number" step="0.01" min="0" max="100" value={form.tasaInteres}
+          onChange={set('tasaInteres')} className="input" placeholder="0.00 (sin interés)" />
+      </label>
+
+      {/* Preview cuota calculada */}
+      {isFijo && montoOrig > 0 && nCuotas > 0 && (() => {
+        const tasa = parseFloat(form.tasaInteres) || 0
+        const cuota = tasa === 0
+          ? montoOrig / nCuotas
+          : (montoOrig * (tasa / 100 / 12)) / (1 - Math.pow(1 + tasa / 100 / 12, -nCuotas))
+        const total = cuota * nCuotas
+        return (
+          <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-3">
+            <p className="text-xs text-text-muted mb-1">Cuota mensual estimada</p>
+            <p className="text-lg font-bold text-primary">
+              {form.moneda} {cuota.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <p className="text-xs text-text-muted mt-0.5">
+              Total a pagar: {form.moneda} {total.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+          </div>
+        )
+      })()}
 
       {/* ── Fechas (fechaFin se auto-calcula si es FIJO) ──────────────────── */}
       <div className="grid grid-cols-2 gap-3">

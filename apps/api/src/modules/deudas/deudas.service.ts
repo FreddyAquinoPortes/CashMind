@@ -19,6 +19,13 @@ const SUBCATEGORIA_HINTS: Record<string, string[]> = {
   OTRA:      ['otra', 'otro', 'general'],
 }
 
+/** Amortización francesa: cuota fija con interés compuesto mensual */
+function calcMontoCuota(monto: number, tasaInteres: number, numeroCuotas: number): number {
+  if (tasaInteres === 0) return monto / numeroCuotas
+  const r = (tasaInteres / 100) / 12
+  return (monto * r) / (1 - Math.pow(1 + r, -numeroCuotas))
+}
+
 /** Advance a date by N months, clamping to last day of month */
 function addMonths(base: Date, n: number): Date {
   const d = new Date(base)
@@ -100,7 +107,11 @@ export class DeudasService {
       const cuotasPagadas = d.cuotasPagadasAnteriores ?? 0
       const cuotasRestantes = d.numeroCuotas - cuotasPagadas
       if (cuotasRestantes > 0) {
-        const montoCuota = Number(d.montoOriginal) / d.numeroCuotas
+        const montoCuota = calcMontoCuota(
+          Number(d.montoOriginal),
+          Number(d.tasaInteres ?? 0),
+          d.numeroCuotas,
+        )
         const { categoriaId, subcategoriaId } = await findDeudaCategory(d.tipo)
 
         const eventosData = Array.from({ length: cuotasRestantes }, (_, i) => ({
@@ -203,7 +214,11 @@ export class DeudasService {
       include: { pagos: { orderBy: { fecha: 'asc' } } },
     })
     if (deuda.tipoPlazo !== 'FIJO' || !deuda.numeroCuotas) return { tipo: 'FLEXIBLE', pagos: deuda.pagos }
-    const cuotaMonto = Number(deuda.montoOriginal) / deuda.numeroCuotas
+    const cuotaMonto = calcMontoCuota(
+      Number(deuda.montoOriginal),
+      Number(deuda.tasaInteres ?? 0),
+      deuda.numeroCuotas,
+    )
     const inicio = new Date(deuda.fechaInicio)
     const cuotas = Array.from({ length: deuda.numeroCuotas }, (_, i) => {
       const fecha = addMonths(inicio, i + 1)
