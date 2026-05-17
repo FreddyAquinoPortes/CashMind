@@ -190,7 +190,7 @@ export class CombustibleService {
     await Promise.all(
       tiposUsados.map(async tipo => {
         const p = await prisma.precioCombustible.findFirst({ where: { tipo }, orderBy: { fecha: 'desc' } })
-        preciosPorTipo[tipo] = p ? Number(p.precio) : 294.5
+        preciosPorTipo[tipo as string] = p ? Number(p.precio) : 294.5
       })
     )
 
