@@ -1,0 +1,16 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { Menu, Bell, Sun, Moon, ChevronDown } from 'lucide-react';
+import { useAuthStore } from '@/store/auth.store';
+import { useState } from 'react';
+export function Header({ onMenuClick }) {
+    const { user, clientes, clienteActivo, setClienteActivo, logout } = useAuthStore();
+    const [theme, setTheme] = useState('dark');
+    const [menuOpen, setMenuOpen] = useState(false);
+    function toggleTheme() {
+        const next = theme === 'dark' ? 'light' : 'dark';
+        setTheme(next);
+        document.documentElement.className = next;
+    }
+    return (_jsxs("header", { className: "flex items-center gap-3 h-14 px-4 border-b border-border bg-surface shrink-0", children: [_jsx("button", { onClick: onMenuClick, className: "text-text-muted hover:text-text-primary transition-colors", "aria-label": "Menu", children: _jsx(Menu, { size: 18 }) }), clientes.length > 1 ? (_jsx("select", { value: clienteActivo?.id ?? '', onChange: e => { const c = clientes.find(x => x.id === e.target.value); if (c)
+                    setClienteActivo(c); }, className: "text-sm bg-surface-elevated border border-border rounded px-2 py-1 text-text-primary", children: clientes.map(c => _jsx("option", { value: c.id, children: c.nombre }, c.id)) })) : clienteActivo && (_jsx("span", { className: "text-sm text-text-secondary hidden md:block truncate max-w-[200px]", children: clienteActivo.nombre })), _jsxs("div", { className: "ml-auto flex items-center gap-1", children: [_jsx("button", { onClick: toggleTheme, className: "p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors", children: theme === 'dark' ? _jsx(Sun, { size: 16 }) : _jsx(Moon, { size: 16 }) }), _jsxs("button", { className: "relative p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors", children: [_jsx(Bell, { size: 16 }), _jsx("span", { className: "absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-danger" })] }), _jsxs("div", { className: "relative", children: [_jsxs("button", { onClick: () => setMenuOpen(o => !o), className: "flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-elevated transition-colors", children: [_jsx("div", { className: "w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-semibold text-primary-foreground", children: user?.nombre?.[0]?.toUpperCase() ?? 'U' }), _jsx("span", { className: "text-sm text-text-primary hidden md:block max-w-[120px] truncate", children: user?.nombre }), _jsx(ChevronDown, { size: 14, className: "text-text-muted" })] }), menuOpen && (_jsxs("div", { className: "absolute right-0 top-full mt-1 w-48 bg-surface border border-border rounded-lg shadow-xl z-50 py-1 animate-fade-in", children: [_jsxs("div", { className: "px-3 py-2 border-b border-border", children: [_jsx("div", { className: "text-xs font-medium text-text-primary truncate", children: user?.nombre }), _jsx("div", { className: "text-xs text-text-muted truncate", children: user?.email })] }), _jsx("button", { onClick: () => { logout(); setMenuOpen(false); }, className: "w-full text-left px-3 py-2 text-sm text-danger hover:bg-surface-elevated transition-colors", children: "Cerrar sesi\u00F3n" })] }))] })] })] }));
+}
