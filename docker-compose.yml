@@ -1,0 +1,56 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: cashmind-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       cashmind_prod
+      POSTGRES_USER:     cashmind
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cashmind -d cashmind_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── API ────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: cashmind-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:          postgresql://cashmind:${DB_PASSWORD}@db:5432/cashmind_prod
+      JWT_SECRET:            ${JWT_SECRET}
+      JWT_REFRESH_SECRET:    ${JWT_REFRESH_SECRET}
+      JWT_EXPIRES_IN:        15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      API_PORT:              3001
+      NODE_ENV:              production
+      FRONTEND_URL:          https://cashmind.getwavely.com
+    ports:
+      - "3001:3001"
+
+  # ── Web (nginx + SPA) ──────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: cashmind-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:
