@@ -3,12 +3,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
 import { useFmt } from '../../lib/useFmt'
-import type { TarjetaCredito, Franquicia, TipoTarjeta, CategoriaTarjeta } from '../../lib/types'
+import type { TarjetaCredito, Franquicia, TipoTarjeta, CategoriaTarjeta, ExtraCredito } from '../../lib/types'
 import { BANCOS_RD, FRANQUICIAS, TIPOS_TARJETA, CATEGORIAS_TARJETA, MONEDAS } from '../../lib/constants'
-import { PlusIcon, CreditCardIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, CreditCardIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
 
 const FRANQ_COLORS: Record<string, string> = {
   VISA: '#1a1f71', MASTERCARD: '#eb001b', AMEX: '#007bc1', DISCOVER: '#ff6600',
+}
+
+const CUOTAS_OPCIONES = [3, 6, 9, 12, 18, 24, 36]
+
+function calcMontoCuota(monto: number, tasaInteres: number, numeroCuotas: number): number {
+  if (!monto || !numeroCuotas) return 0
+  if (tasaInteres === 0) return monto / numeroCuotas
+  const r = (tasaInteres / 100) / 12
+  return (monto * r) / (1 - Math.pow(1 + r, -numeroCuotas))
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────
@@ -47,12 +56,15 @@ interface TarjetaForm {
   monedaSecundaria: string
   limiteSecundario: string
   saldoSecundario: string
+  // ExtraCredito
+  tieneExtraCredito: boolean
 }
 
 const EMPTY: TarjetaForm = {
   alias: '', banco: '', ultimosCuatro: '', franquicia: '', tipoTarjeta: 'CREDITO', categoriaTarjeta: '',
   limite: '0', saldoActual: '0', tasaInteres: '0', diaCorte: '1', diaPago: '15', moneda: 'DOP', activa: true,
   dobleBalance: false, monedaSecundaria: 'USD', limiteSecundario: '0', saldoSecundario: '0',
+  tieneExtraCredito: false,
 }
 
 function TarjetaFormPanel({
@@ -171,6 +183,20 @@ function TarjetaFormPanel({
         </div>
       )}
 
+      {/* Toggle ExtraCredito */}
+      <div className="flex items-center justify-between py-2 border-t border-border">
+        <div>
+          <p className="text-sm font-medium text-text-primary">ExtraCredito</p>
+          <p className="text-xs text-text-muted">La tarjeta permite préstamos en cuotas sobre el límite disponible</p>
+        </div>
+        <button type="button" onClick={() => setForm(p => ({ ...p, tieneExtraCredito: !p.tieneExtraCredito }))}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none
+            ${form.tieneExtraCredito ? 'bg-primary' : 'bg-border'}`}>
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
+            ${form.tieneExtraCredito ? 'translate-x-6' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
       <div className="grid grid-cols-3 gap-3">
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Tasa interés %
@@ -201,6 +227,330 @@ function UtilBar({ pct }: { pct: number }) {
     <div className="w-full bg-border rounded-full h-1.5 mt-2">
       <div className="h-1.5 rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: color }} />
     </div>
+  )
+}
+
+// ── ExtraCredito progress bar ──────────────────────────────────────────────
+function CuotasBar({ pct }: { pct: number }) {
+  return (
+    <div className="w-full bg-border rounded-full h-1.5">
+      <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${Math.min(pct, 100)}%` }} />
+    </div>
+  )
+}
+
+// ── Nuevo ExtraCredito Modal ───────────────────────────────────────────────
+interface ExtraCreditoForm {
+  descripcion: string
+  montoOriginal: string
+  tasaInteres: string
+  numeroCuotas: string
+  fechaInicio: string
+  diaPago: string
+  moneda: string
+}
+
+function NuevoExtraCreditoModal({
+  tarjeta, onClose, onSuccess,
+}: {
+  tarjeta: TarjetaCredito
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const hoy = new Date().toISOString().slice(0, 10)
+  const [form, setForm] = useState<ExtraCreditoForm>({
+    descripcion: '',
+    montoOriginal: '',
+    tasaInteres: '0',
+    numeroCuotas: '12',
+    fechaInicio: hoy,
+    diaPago: String(tarjeta.diaPago),
+    moneda: tarjeta.moneda,
+  })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const set = (k: keyof ExtraCreditoForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm(p => ({ ...p, [k]: e.target.value }))
+
+  const monto = parseFloat(form.montoOriginal) || 0
+  const tasa = parseFloat(form.tasaInteres) || 0
+  const cuotas = parseInt(form.numeroCuotas) || 1
+  const montoCuota = calcMontoCuota(monto, tasa, cuotas)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+    try {
+      await api.post(`/tarjetas/${tarjeta.id}/extracredito`, {
+        descripcion: form.descripcion || null,
+        montoOriginal: monto,
+        tasaInteres: tasa,
+        numeroCuotas: cuotas,
+        fechaInicio: form.fechaInicio,
+        diaPago: parseInt(form.diaPago),
+        moneda: form.moneda,
+      })
+      onSuccess()
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? err.message ?? 'Error al crear ExtraCredito')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Modal title="Nuevo ExtraCredito" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {error && <div className="text-sm text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</div>}
+
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          Descripción (opcional)
+          <input value={form.descripcion} onChange={set('descripcion')} className="input" placeholder="Ej. Compra electrodoméstico" autoFocus />
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Moneda
+            <select value={form.moneda} onChange={set('moneda')} className="input">
+              {MONEDAS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Monto *
+            <input required type="number" step="0.01" min="0.01" max={String(tarjeta.limite)}
+              value={form.montoOriginal} onChange={set('montoOriginal')} className="input" placeholder="0.00" />
+            <span className="text-xs text-text-muted">Máx: {parseFloat(String(tarjeta.limite)).toLocaleString()}</span>
+          </label>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Tasa de interés %
+            <input type="number" step="0.01" min="0" max="100" value={form.tasaInteres} onChange={set('tasaInteres')} className="input" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Número de cuotas
+            <select value={form.numeroCuotas} onChange={set('numeroCuotas')} className="input">
+              {CUOTAS_OPCIONES.map(n => <option key={n} value={n}>{n} meses</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Fecha de inicio
+            <input type="date" value={form.fechaInicio} onChange={set('fechaInicio')} className="input" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Día de pago
+            <input type="number" min="1" max="31" value={form.diaPago} onChange={set('diaPago')} className="input" />
+          </label>
+        </div>
+
+        {monto > 0 && (
+          <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-3">
+            <p className="text-xs text-text-muted mb-1">Cuota mensual estimada</p>
+            <p className="text-lg font-bold text-primary">
+              {form.moneda} {montoCuota.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <p className="text-xs text-text-muted mt-0.5">
+              Total a pagar: {form.moneda} {(montoCuota * cuotas).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end mt-2">
+          <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
+          <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Creando…' : 'Crear ExtraCredito'}</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// ── Registrar Pago Modal ───────────────────────────────────────────────────
+function RegistrarPagoModal({
+  ec, onClose, onSuccess,
+}: {
+  ec: ExtraCredito
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const hoy = new Date().toISOString().slice(0, 10)
+  const [monto, setMonto] = useState(parseFloat(String(ec.montoCuota)).toFixed(2))
+  const [fecha, setFecha] = useState(hoy)
+  const [notas, setNotas] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+    try {
+      await api.post(`/extracredito/${ec.id}/pago`, {
+        monto: parseFloat(monto),
+        fecha,
+        notas: notas || null,
+      })
+      onSuccess()
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? err.message ?? 'Error al registrar pago')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Modal title="Registrar pago ExtraCredito" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {error && <div className="text-sm text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</div>}
+
+        <div className="bg-surface border border-border rounded-lg px-4 py-3 text-sm">
+          <p className="text-text-muted text-xs">ExtraCredito</p>
+          <p className="font-medium text-text-primary">{ec.descripcion ?? `EC-${ec.id.slice(-6)}`}</p>
+          <p className="text-text-muted text-xs mt-1">
+            Saldo pendiente: {ec.moneda} {parseFloat(String(ec.saldoPendiente)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+          </p>
+        </div>
+
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          Monto a pagar *
+          <input required type="number" step="0.01" min="0.01"
+            value={monto} onChange={e => setMonto(e.target.value)} className="input" autoFocus />
+          <span className="text-xs text-text-muted">Cuota sugerida: {ec.moneda} {parseFloat(String(ec.montoCuota)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</span>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          Fecha
+          <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} className="input" />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          Notas (opcional)
+          <input value={notas} onChange={e => setNotas(e.target.value)} className="input" placeholder="Ej. Pago parcial" />
+        </label>
+
+        <div className="flex gap-2 justify-end mt-2">
+          <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
+          <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Registrando…' : 'Registrar pago'}</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// ── ExtraCredito section in card ───────────────────────────────────────────
+function ExtraCreditoSection({ tarjeta, onRefresh }: { tarjeta: TarjetaCredito; onRefresh: () => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const [showNuevoModal, setShowNuevoModal] = useState(false)
+  const [pagoEc, setPagoEc] = useState<ExtraCredito | null>(null)
+
+  const extraCreditos = tarjeta.extraCreditos ?? []
+  const activos = extraCreditos.filter(ec => ec.estado === 'ACTIVO' || ec.estado === 'EN_MORA')
+
+  const handleDelete = async (ecId: string) => {
+    if (!confirm('¿Eliminar este ExtraCredito?')) return
+    try {
+      await api.delete(`/extracredito/${ecId}`)
+      onRefresh()
+    } catch {
+      // silently ignore
+    }
+  }
+
+  return (
+    <>
+      {showNuevoModal && (
+        <NuevoExtraCreditoModal
+          tarjeta={tarjeta}
+          onClose={() => setShowNuevoModal(false)}
+          onSuccess={() => { setShowNuevoModal(false); onRefresh() }}
+        />
+      )}
+      {pagoEc && (
+        <RegistrarPagoModal
+          ec={pagoEc}
+          onClose={() => setPagoEc(null)}
+          onSuccess={() => { setPagoEc(null); onRefresh() }}
+        />
+      )}
+
+      <div className="mt-3 border-t border-border/60 pt-3">
+        <button
+          type="button"
+          onClick={() => setExpanded(p => !p)}
+          className="flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-primary transition-colors w-full"
+        >
+          {expanded ? <ChevronUpIcon className="w-3.5 h-3.5" /> : <ChevronDownIcon className="w-3.5 h-3.5" />}
+          <span>ExtraCreditos</span>
+          {activos.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs">{activos.length} activo{activos.length !== 1 ? 's' : ''}</span>
+          )}
+          <span className="ml-auto" />
+        </button>
+
+        {expanded && (
+          <div className="mt-2 flex flex-col gap-2">
+            {extraCreditos.length === 0 && (
+              <p className="text-xs text-text-muted py-2">No hay ExtraCreditos registrados</p>
+            )}
+            {extraCreditos.map(ec => (
+              <div key={ec.id} className="bg-background/60 border border-border/60 rounded-lg p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-text-primary truncate">
+                        {ec.descripcion ?? `EC-${ec.id.slice(-6)}`}
+                      </span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                        ec.estado === 'ACTIVO' ? 'bg-success/10 text-success' :
+                        ec.estado === 'PAGADO' ? 'bg-primary/10 text-primary' :
+                        ec.estado === 'EN_MORA' ? 'bg-danger/10 text-danger' :
+                        'bg-border text-text-muted'
+                      }`}>{ec.estado}</span>
+                    </div>
+                    <div className="text-xs text-text-muted mt-0.5">
+                      {ec.moneda} {parseFloat(String(ec.montoOriginal)).toLocaleString('es-DO', { minimumFractionDigits: 2 })} ·
+                      Cuota: {parseFloat(String(ec.montoCuota)).toLocaleString('es-DO', { minimumFractionDigits: 2 })} ·
+                      Próx. pago: {ec.proximoPago}
+                    </div>
+                    <CuotasBar pct={ec.progreso} />
+                    <div className="flex items-center justify-between text-xs text-text-muted mt-0.5">
+                      <span>{ec.cuotasPagadas}/{ec.numeroCuotas} cuotas pagadas ({ec.progreso}%)</span>
+                      <span>Saldo: {ec.moneda} {parseFloat(String(ec.saldoPendiente)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {ec.estado !== 'PAGADO' && ec.estado !== 'CANCELADO' && (
+                      <button
+                        onClick={() => setPagoEc(ec)}
+                        className="text-xs px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      >
+                        Pagar
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(ec.id)}
+                      className="p-1 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                    >🗑</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <button
+              onClick={() => setShowNuevoModal(true)}
+              className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors py-1"
+            >
+              <PlusIcon className="w-3.5 h-3.5" /> Nuevo ExtraCredito
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -243,6 +593,7 @@ export function TarjetasPage() {
     monedaSecundaria: d.dobleBalance ? d.monedaSecundaria : null,
     limiteSecundario: d.dobleBalance ? parseFloat(d.limiteSecundario) : null,
     saldoSecundario:  d.dobleBalance ? parseFloat(d.saldoSecundario)  : null,
+    tieneExtraCredito: d.tieneExtraCredito,
   })
 
   const create = useMutation({
@@ -313,6 +664,7 @@ export function TarjetasPage() {
                   {t.franquicia && <span className="text-xs px-1.5 py-0.5 rounded bg-border text-text-muted">{t.franquicia}</span>}
                   {t.categoriaTarjeta && <span className="text-xs px-1.5 py-0.5 rounded bg-border text-text-muted">{t.categoriaTarjeta}</span>}
                   {t.dobleBalance && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">Multi-moneda</span>}
+                  {t.tieneExtraCredito && <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500">ExtraCredito</span>}
                   {!t.activa && <span className="text-xs px-1.5 py-0.5 rounded bg-warning/10 text-warning">Inactiva</span>}
                 </div>
                 <div className="text-xs text-text-muted mt-0.5">{t.banco} · ····{t.ultimosCuatro}</div>
@@ -339,6 +691,11 @@ export function TarjetasPage() {
                       <span className="text-text-muted">{t.monedaSecundaria} · {t.utilizacionSecundaria ?? 0}% de {fmt(t.limiteSecundario ?? 0)}</span>
                     </div>
                   </>
+                )}
+
+                {/* ExtraCredito section */}
+                {t.tieneExtraCredito && (
+                  <ExtraCreditoSection tarjeta={t} onRefresh={invalidate} />
                 )}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -382,6 +739,7 @@ export function TarjetasPage() {
               monedaSecundaria: modal.tarjeta.monedaSecundaria ?? 'USD',
               limiteSecundario: String(modal.tarjeta.limiteSecundario ?? '0'),
               saldoSecundario: String(modal.tarjeta.saldoSecundario ?? '0'),
+              tieneExtraCredito: modal.tarjeta.tieneExtraCredito ?? false,
             }}
             onClose={closeModal} loading={update.isPending} error={modal.error}
             onSubmit={d => update.mutate({ id: modal.tarjeta.id, d: toPayload(d) })} />

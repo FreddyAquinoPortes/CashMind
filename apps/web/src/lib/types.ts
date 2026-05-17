@@ -67,6 +67,40 @@ export type Franquicia     = 'VISA' | 'MASTERCARD' | 'AMEX' | 'DISCOVER'
 export type TipoTarjeta    = 'CREDITO' | 'DEBITO'
 export type CategoriaTarjeta = 'STANDARD' | 'GOLD' | 'PLATINUM' | 'BLACK'
 
+export type EstadoExtraCredito = 'ACTIVO' | 'PAGADO' | 'EN_MORA' | 'CANCELADO'
+
+export interface PagoExtraCredito {
+  id: string
+  extraCreditoId: string
+  monto: string
+  fecha: string
+  notas: string | null
+  createdAt: string
+}
+
+export interface ExtraCredito {
+  id: string
+  tarjetaId: string
+  descripcion: string | null
+  montoOriginal: string
+  saldoPendiente: string
+  tasaInteres: string
+  numeroCuotas: number
+  cuotasPagadas: number
+  montoCuota: string
+  fechaInicio: string
+  diaPago: number
+  estado: EstadoExtraCredito
+  moneda: string
+  pagos: PagoExtraCredito[]
+  // computed
+  cuotasRestantes: number
+  progreso: number
+  proximoPago: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface TarjetaCredito {
   id: string
   clienteId: string
@@ -88,6 +122,9 @@ export interface TarjetaCredito {
   monedaSecundaria: string | null
   limiteSecundario: string | null
   saldoSecundario: string | null    // puede ser negativo
+  // ExtraCredito
+  tieneExtraCredito: boolean
+  extraCreditos?: ExtraCredito[]
   // computed
   utilizacion: number
   disponible: number

@@ -30,6 +30,13 @@ enum EstadoCiclo {
   EN_MORA
 }
 
+enum EstadoExtraCredito {
+  ACTIVO
+  PAGADO
+  EN_MORA
+  CANCELADO
+}
+
 enum Frecuencia {
   UNICA
   DIARIA
@@ -249,12 +256,46 @@ model TarjetaCredito {
   monedaSecundaria   String?
   limiteSecundario   Decimal?       @db.Decimal(15, 2)
   saldoSecundario    Decimal?       @db.Decimal(15, 2)
+  tieneExtraCredito  Boolean        @default(false)
   transacciones      Transaccion[]
   ciclos             CicloTarjeta[]
+  extraCreditos      ExtraCredito[]
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
   @@index([clienteId])
+}
+
+model ExtraCredito {
+  id              String              @id @default(cuid())
+  tarjetaId       String
+  tarjeta         TarjetaCredito      @relation(fields: [tarjetaId], references: [id], onDelete: Cascade)
+  descripcion     String?
+  montoOriginal   Decimal             @db.Decimal(15, 2)
+  saldoPendiente  Decimal             @db.Decimal(15, 2)
+  tasaInteres     Decimal             @default(0) @db.Decimal(5, 2)
+  numeroCuotas    Int
+  cuotasPagadas   Int                 @default(0)
+  montoCuota      Decimal             @db.Decimal(15, 2)
+  fechaInicio     DateTime
+  diaPago         Int
+  estado          EstadoExtraCredito  @default(ACTIVO)
+  moneda          String              @default("DOP")
+  pagos           PagoExtraCredito[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([tarjetaId])
+}
+
+model PagoExtraCredito {
+  id             String       @id @default(cuid())
+  extraCreditoId String
+  extraCredito   ExtraCredito @relation(fields: [extraCreditoId], references: [id], onDelete: Cascade)
+  monto          Decimal      @db.Decimal(15, 2)
+  fecha          DateTime
+  notas          String?
+  createdAt      DateTime     @default(now())
 }
 
 model CicloTarjeta {
