@@ -19,6 +19,26 @@ function calcMontoCuota(monto: number, tasaInteres: number, numeroCuotas: number
   return (monto * r) / (1 - Math.pow(1 + r, -numeroCuotas))
 }
 
+/** Newton-Raphson: given monto, cuota mensual y n cuotas → tasa anual % (null si tasa negativa) */
+function calcTasaAnualDesdeMontos(monto: number, cuota: number, n: number): number | null {
+  const minCuota = monto / n
+  if (cuota < minCuota - 0.001) return null  // implies negative rate
+  if (Math.abs(cuota - minCuota) < 0.001) return 0
+  let r = 0.01
+  for (let i = 0; i < 300; i++) {
+    const pow = Math.pow(1 + r, -n)
+    const denom = 1 - pow
+    const f = (monto * r) / denom - cuota
+    const df = monto * (denom + r * n * Math.pow(1 + r, -n - 1)) / (denom * denom)
+    if (df === 0) return null
+    const r1 = r - f / df
+    if (isNaN(r1) || r1 <= 0) return null
+    if (Math.abs(r1 - r) < 1e-12) { r = r1; break }
+    r = r1
+  }
+  return r > 0 ? Math.round(r * 12 * 100 * 100) / 100 : null
+}
+
 // ── Toast ──────────────────────────────────────────────────────────────────
 function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
   return (
@@ -226,6 +246,7 @@ interface ExtraCreditoForm {
   descripcion: string
   montoOriginal: string
   tasaInteres: string
+  montoCuota: string
   numeroCuotas: string
   fechaInicio: string
   diaPago: string
@@ -253,6 +274,7 @@ function NuevoExtraCreditoModal({
     descripcion: '',
     montoOriginal: '',
     tasaInteres: '0',
+    montoCuota: '',
     numeroCuotas: '12',
     fechaInicio: hoy,
     diaPago: String(tarjeta.diaPago),
@@ -262,6 +284,7 @@ function NuevoExtraCreditoModal({
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cuotaError, setCuotaError] = useState('')
 
   const set = (k: keyof ExtraCreditoForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }))
@@ -269,10 +292,51 @@ function NuevoExtraCreditoModal({
   const monto = parseFloat(form.montoOriginal) || 0
   const tasa = parseFloat(form.tasaInteres) || 0
   const cuotas = parseInt(form.numeroCuotas) || 1
-  const montoCuota = calcMontoCuota(monto, tasa, cuotas)
+
+  const toStr = (v: number) => v > 0 ? v.toFixed(2) : ''
+
+  const handleTasaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTasa = e.target.value
+    const cuota = toStr(calcMontoCuota(monto, parseFloat(newTasa) || 0, cuotas))
+    setCuotaError('')
+    setForm(p => ({ ...p, tasaInteres: newTasa, montoCuota: cuota }))
+  }
+
+  const handleMontoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    const m = parseFloat(val) || 0
+    const cuota = toStr(calcMontoCuota(m, tasa, cuotas))
+    setForm(p => ({ ...p, montoOriginal: val, montoCuota: cuota }))
+  }
+
+  const handleCuotasChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    const n = parseInt(val) || 1
+    const cuota = toStr(calcMontoCuota(monto, tasa, n))
+    setForm(p => ({ ...p, numeroCuotas: val, montoCuota: cuota }))
+  }
+
+  const handleMontoCuotaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    const c = parseFloat(val) || 0
+    let newTasa = form.tasaInteres
+    let err = ''
+    if (c > 0 && monto > 0 && cuotas > 0) {
+      const minC = monto / cuotas
+      if (c < minC - 0.001) {
+        err = `Cuota mínima sin interés: ${minC.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — un valor menor implica tasa negativa`
+      } else {
+        const anual = calcTasaAnualDesdeMontos(monto, c, cuotas)
+        if (anual !== null) newTasa = anual.toFixed(2)
+      }
+    }
+    setCuotaError(err)
+    setForm(p => ({ ...p, montoCuota: val, tasaInteres: newTasa }))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (cuotaError) return
     setError(null)
     setLoading(true)
     try {
@@ -315,21 +379,21 @@ function NuevoExtraCreditoModal({
           <label className="flex flex-col gap-1 text-sm text-text-secondary">
             Monto *
             <input required type="number" step="0.01" min="0.01" max={String(tarjeta.limite)}
-              value={form.montoOriginal} onChange={set('montoOriginal')} className="input" placeholder="0.00" />
+              value={form.montoOriginal} onChange={handleMontoChange} className="input" placeholder="0.00" />
             <span className="text-xs text-text-muted">Máx: {parseFloat(String(tarjeta.limite)).toLocaleString()}</span>
           </label>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-sm text-text-secondary">
-            Tasa de interés %
-            <input type="number" step="0.01" min="0" max="100" value={form.tasaInteres} onChange={set('tasaInteres')} className="input" />
+            Tasa de interés % anual
+            <input type="number" step="0.01" min="0" max="200" value={form.tasaInteres} onChange={handleTasaChange} className="input" />
           </label>
           <label className="flex flex-col gap-1 text-sm text-text-secondary">
             Número de cuotas
             <input
               required type="number" min="1" max="360" step="1"
-              value={form.numeroCuotas} onChange={set('numeroCuotas')}
+              value={form.numeroCuotas} onChange={handleCuotasChange}
               className="input" placeholder="Ej. 12"
             />
           </label>
@@ -366,21 +430,33 @@ function NuevoExtraCreditoModal({
           </label>
         </div>
 
-        {monto > 0 && (
-          <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-3">
-            <p className="text-xs text-text-muted mb-1">Cuota mensual estimada</p>
-            <p className="text-lg font-bold text-primary">
-              {form.moneda} {montoCuota.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-text-muted mt-0.5">
-              Total a pagar: {form.moneda} {(montoCuota * cuotas).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-          </div>
-        )}
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          <span className="flex items-center gap-2">
+            Monto por cuota
+            <span className="text-xs text-primary font-normal">
+              {form.tasaInteres && parseFloat(form.tasaInteres) > 0 ? '(calculado desde tasa)' : '(ingresa para derivar la tasa)'}
+            </span>
+          </span>
+          <input
+            type="number" step="0.01" min="0"
+            value={form.montoCuota}
+            onChange={handleMontoCuotaChange}
+            className={`input ${cuotaError ? 'border-danger' : ''}`}
+            placeholder="Se calcula automáticamente"
+          />
+          {cuotaError && (
+            <span className="text-xs text-danger mt-0.5">{cuotaError}</span>
+          )}
+          {!cuotaError && form.montoCuota && (
+            <span className="text-xs text-text-muted mt-0.5">
+              Total: {form.moneda} {(parseFloat(form.montoCuota) * cuotas).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          )}
+        </label>
 
         <div className="flex gap-2 justify-end mt-2">
           <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
-          <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Creando…' : 'Crear ExtraCredito'}</button>
+          <button type="submit" disabled={loading || !!cuotaError} className="btn-primary">{loading ? 'Creando…' : 'Crear ExtraCredito'}</button>
         </div>
       </form>
     </Modal>

@@ -79,14 +79,42 @@ function DeudaProgress({ saldo, original, compact }: { saldo: string; original: 
 // ── Deuda Form ─────────────────────────────────────────────────────────────
 interface DeudaForm {
   personaId: string; concepto: string; tipo: TipoDeuda; montoOriginal: string; saldoActual: string
-  moneda: string; fechaInicio: string; fechaFin: string; tasaInteres: string
+  moneda: string; fechaInicio: string; fechaFin: string; tasaInteres: string; montoCuota: string
   tipoPlazo: TipoPlazo; numeroCuotas: string; diaCobro: string
   estado: EstadoDeuda; notas: string
 }
 const EMPTY: DeudaForm = {
   personaId: '', concepto: '', tipo: 'PERSONAL', montoOriginal: '', saldoActual: '',
   moneda: 'DOP', fechaInicio: new Date().toISOString().slice(0, 10), fechaFin: '',
-  tasaInteres: '', tipoPlazo: 'FIJO', numeroCuotas: '', diaCobro: '', estado: 'ACTIVA', notas: '',
+  tasaInteres: '', montoCuota: '', tipoPlazo: 'FIJO', numeroCuotas: '', diaCobro: '', estado: 'ACTIVA', notas: '',
+}
+
+/** Amortización francesa: cuota fija mensual */
+function calcMontoCuota(monto: number, tasaAnual: number, n: number): number {
+  if (!monto || !n) return 0
+  if (tasaAnual === 0) return monto / n
+  const r = (tasaAnual / 100) / 12
+  return (monto * r) / (1 - Math.pow(1 + r, -n))
+}
+
+/** Newton-Raphson: given monto, cuota mensual y n cuotas → tasa anual % (null si tasa negativa) */
+function calcTasaAnualDesdeMontos(monto: number, cuota: number, n: number): number | null {
+  const minCuota = monto / n
+  if (cuota < minCuota - 0.001) return null  // implies negative rate
+  if (Math.abs(cuota - minCuota) < 0.001) return 0
+  let r = 0.01
+  for (let i = 0; i < 300; i++) {
+    const pow = Math.pow(1 + r, -n)
+    const denom = 1 - pow
+    const f = (monto * r) / denom - cuota
+    const df = monto * (denom + r * n * Math.pow(1 + r, -n - 1)) / (denom * denom)
+    if (df === 0) return null
+    const r1 = r - f / df
+    if (isNaN(r1) || r1 <= 0) return null
+    if (Math.abs(r1 - r) < 1e-12) { r = r1; break }
+    r = r1
+  }
+  return r > 0 ? Math.round(r * 12 * 100 * 100) / 100 : null
 }
 
 /** Add N months to a date string (YYYY-MM-DD), clamp to last day of month */
@@ -107,31 +135,78 @@ function DeudaFormPanel({
 }) {
   const [form, setForm] = useState<DeudaForm>(initial ?? EMPTY)
   const [confirmarPagadas, setConfirmarPagadas] = useState(false)
+  const [cuotaError, setCuotaError] = useState('')
 
   const set = (k: keyof DeudaForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }))
 
   const isFijo = form.tipoPlazo === 'FIJO'
 
-  // Auto-calculate fechaFin from fechaInicio + numeroCuotas (NEW direction)
+  // Auto-calculate fechaFin from fechaInicio + numeroCuotas
   useEffect(() => {
     if (!isFijo || !form.fechaInicio || !form.numeroCuotas) return
     const n = parseInt(form.numeroCuotas)
     if (n > 0) setForm(p => ({ ...p, fechaFin: addMonthsStr(p.fechaInicio, n) }))
   }, [form.fechaInicio, form.numeroCuotas, form.tipoPlazo])
 
-  // Smart detection of already-paid cuotas
-  const montoOrig   = parseFloat(form.montoOriginal) || 0
-  const saldoAct    = parseFloat(form.saldoActual) || montoOrig
-  const nCuotas     = parseInt(form.numeroCuotas) || 0
-  const montoCuota  = nCuotas > 0 && montoOrig > 0 ? montoOrig / nCuotas : 0
-  const estimadaPagadas = (isFijo && montoCuota > 0 && saldoAct < montoOrig && !isEdit)
-    ? Math.max(0, Math.round((montoOrig - saldoAct) / montoCuota))
+  // Derived values
+  const montoOrig  = parseFloat(form.montoOriginal) || 0
+  const saldoAct   = parseFloat(form.saldoActual) || montoOrig
+  const nCuotas    = parseInt(form.numeroCuotas) || 0
+  const cuotaSimple = nCuotas > 0 && montoOrig > 0 ? montoOrig / nCuotas : 0
+
+  // Smart detection of already-paid cuotas (uses simple division for estimation)
+  const estimadaPagadas = (isFijo && cuotaSimple > 0 && saldoAct < montoOrig && !isEdit)
+    ? Math.max(0, Math.round((montoOrig - saldoAct) / cuotaSimple))
     : 0
   const cuotasPagadasAnteriores = confirmarPagadas ? estimadaPagadas : 0
 
+  // ── Bidirectional handlers: tasa ↔ montoCuota ────────────────────────────
+  const toStr = (n: number) => n > 0 ? n.toFixed(2) : ''
+
+  const handleTasaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTasa = e.target.value
+    const cuota = toStr(calcMontoCuota(montoOrig, parseFloat(newTasa) || 0, nCuotas))
+    setCuotaError('')
+    setForm(p => ({ ...p, tasaInteres: newTasa, montoCuota: cuota }))
+  }
+
+  const handleMontoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    const m = parseFloat(val) || 0
+    const t = parseFloat(form.tasaInteres) || 0
+    const cuota = toStr(calcMontoCuota(m, t, nCuotas))
+    setForm(p => ({ ...p, montoOriginal: val, montoCuota: cuota }))
+  }
+
+  const handleCuotasChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    const n = parseInt(val) || 0
+    const t = parseFloat(form.tasaInteres) || 0
+    const cuota = toStr(calcMontoCuota(montoOrig, t, n))
+    setForm(p => ({ ...p, numeroCuotas: val, montoCuota: cuota }))
+  }
+
+  const handleMontoCuotaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    const c = parseFloat(val) || 0
+    let newTasa = form.tasaInteres
+    let err = ''
+    if (c > 0 && montoOrig > 0 && nCuotas > 0) {
+      const minC = montoOrig / nCuotas
+      if (c < minC - 0.001) {
+        err = `Cuota mínima sin interés: ${minC.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — un valor menor implica tasa negativa`
+      } else {
+        const anual = calcTasaAnualDesdeMontos(montoOrig, c, nCuotas)
+        if (anual !== null) newTasa = anual.toFixed(2)
+      }
+    }
+    setCuotaError(err)
+    setForm(p => ({ ...p, montoCuota: val, tasaInteres: newTasa }))
+  }
+
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit(form, cuotasPagadasAnteriores) }} className="flex flex-col gap-4">
+    <form onSubmit={e => { e.preventDefault(); if (cuotaError) return; onSubmit(form, cuotasPagadasAnteriores) }} className="flex flex-col gap-4">
       {error && <div className="text-sm text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</div>}
 
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
@@ -167,7 +242,7 @@ function DeudaFormPanel({
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Monto original *
           <input required type="number" step="0.01" min="0.01" value={form.montoOriginal}
-            onChange={set('montoOriginal')} className="input" placeholder="0.00" />
+            onChange={handleMontoChange} className="input" placeholder="0.00" />
         </label>
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Saldo actual
@@ -189,37 +264,44 @@ function DeudaFormPanel({
           <label className="flex flex-col gap-1 text-sm text-text-secondary">
             N° cuotas *
             <input required type="number" min="1" value={form.numeroCuotas}
-              onChange={set('numeroCuotas')} className="input" placeholder="12" />
+              onChange={handleCuotasChange} className="input" placeholder="12" />
           </label>
         )}
       </div>
 
       {/* Tasa siempre visible (para FIJO calcula cuota, para FLEXIBLE es informativa) */}
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
-        Tasa de interés %
-        <input type="number" step="0.01" min="0" max="100" value={form.tasaInteres}
-          onChange={set('tasaInteres')} className="input" placeholder="0.00 (sin interés)" />
+        Tasa de interés % anual
+        <input type="number" step="0.01" min="0" max="200" value={form.tasaInteres}
+          onChange={handleTasaChange} className="input" placeholder="0.00 (sin interés)" />
       </label>
 
-      {/* Preview cuota calculada */}
-      {isFijo && montoOrig > 0 && nCuotas > 0 && (() => {
-        const tasa = parseFloat(form.tasaInteres) || 0
-        const cuota = tasa === 0
-          ? montoOrig / nCuotas
-          : (montoOrig * (tasa / 100 / 12)) / (1 - Math.pow(1 + tasa / 100 / 12, -nCuotas))
-        const total = cuota * nCuotas
-        return (
-          <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-3">
-            <p className="text-xs text-text-muted mb-1">Cuota mensual estimada</p>
-            <p className="text-lg font-bold text-primary">
-              {form.moneda} {cuota.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-text-muted mt-0.5">
-              Total a pagar: {form.moneda} {total.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-          </div>
-        )
-      })()}
+      {/* Monto cuota — editable y bidireccional */}
+      {isFijo && (
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          <span className="flex items-center gap-2">
+            Monto por cuota
+            <span className="text-xs text-primary font-normal">
+              {form.tasaInteres ? '(calculado desde tasa)' : '(ingresa para derivar la tasa)'}
+            </span>
+          </span>
+          <input
+            type="number" step="0.01" min="0"
+            value={form.montoCuota}
+            onChange={handleMontoCuotaChange}
+            className={`input ${cuotaError ? 'border-danger' : ''}`}
+            placeholder="Se calcula automáticamente"
+          />
+          {cuotaError && (
+            <span className="text-xs text-danger mt-0.5">{cuotaError}</span>
+          )}
+          {!cuotaError && form.montoCuota && nCuotas > 0 && (
+            <span className="text-xs text-text-muted mt-0.5">
+              Total: {form.moneda} {(parseFloat(form.montoCuota) * nCuotas).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          )}
+        </label>
+      )}
 
       {/* ── Fechas (fechaFin se auto-calcula si es FIJO) ──────────────────── */}
       <div className="grid grid-cols-2 gap-3">
@@ -272,7 +354,7 @@ function DeudaFormPanel({
 
       <div className="flex gap-2 justify-end mt-2">
         <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
-        <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Guardando…' : 'Guardar'}</button>
+        <button type="submit" disabled={loading || !!cuotaError} className="btn-primary">{loading ? 'Guardando…' : 'Guardar'}</button>
       </div>
     </form>
   )
