@@ -244,6 +244,11 @@ model TarjetaCredito {
   penalidadSobregiro Decimal        @default(0) @db.Decimal(15, 2)
   moneda             String         @default("DOP")
   activa             Boolean        @default(true)
+  // Doble balance: tarjetas multi-moneda (ej: DOP + USD con límites independientes)
+  dobleBalance       Boolean        @default(false)
+  monedaSecundaria   String?
+  limiteSecundario   Decimal?       @db.Decimal(15, 2)
+  saldoSecundario    Decimal?       @db.Decimal(15, 2)
   transacciones      Transaccion[]
   ciclos             CicloTarjeta[]
   createdAt          DateTime       @default(now())

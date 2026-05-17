@@ -77,14 +77,24 @@ export interface TarjetaCredito {
   tipoTarjeta: TipoTarjeta | null
   categoriaTarjeta: CategoriaTarjeta | null
   limite: string
-  saldoActual: string
+  saldoActual: string   // puede ser negativo (sobregiro/intereses)
   tasaInteres: string
   diaCorte: number
   diaPago: number
   moneda: string
   activa: boolean
-  utilizacion: number   // computed
-  disponible: number    // computed
+  // Doble balance
+  dobleBalance: boolean
+  monedaSecundaria: string | null
+  limiteSecundario: string | null
+  saldoSecundario: string | null    // puede ser negativo
+  // computed
+  utilizacion: number
+  disponible: number
+  sobregiro: number
+  disponibleSecundario?: number
+  sobregiroSecundario?: number
+  utilizacionSecundaria?: number
   createdAt: string
 }
 

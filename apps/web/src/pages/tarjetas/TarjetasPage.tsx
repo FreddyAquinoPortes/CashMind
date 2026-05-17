@@ -42,11 +42,17 @@ interface TarjetaForm {
   franquicia: Franquicia | ''; tipoTarjeta: TipoTarjeta | ''; categoriaTarjeta: CategoriaTarjeta | ''
   limite: string; saldoActual: string; tasaInteres: string
   diaCorte: string; diaPago: string; moneda: string; activa: boolean
+  // Doble balance
+  dobleBalance: boolean
+  monedaSecundaria: string
+  limiteSecundario: string
+  saldoSecundario: string
 }
 
 const EMPTY: TarjetaForm = {
   alias: '', banco: '', ultimosCuatro: '', franquicia: '', tipoTarjeta: 'CREDITO', categoriaTarjeta: '',
   limite: '0', saldoActual: '0', tasaInteres: '0', diaCorte: '1', diaPago: '15', moneda: 'DOP', activa: true,
+  dobleBalance: false, monedaSecundaria: 'USD', limiteSecundario: '0', saldoSecundario: '0',
 }
 
 function TarjetaFormPanel({
@@ -106,16 +112,64 @@ function TarjetaFormPanel({
         </label>
       </div>
 
+      {/* Balance principal */}
       <div className="grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          Moneda
+          <select value={form.moneda} onChange={set('moneda')} className="input">
+            {MONEDAS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </label>
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Límite de crédito
           <input type="number" step="0.01" min="0" value={form.limite} onChange={set('limite')} className="input" />
         </label>
-        <label className="flex flex-col gap-1 text-sm text-text-secondary">
-          Saldo actual
-          <input type="number" step="0.01" min="0" value={form.saldoActual} onChange={set('saldoActual')} className="input" />
-        </label>
       </div>
+      <label className="flex flex-col gap-1 text-sm text-text-secondary">
+        Saldo actual
+        <input type="number" step="0.01" value={form.saldoActual} onChange={set('saldoActual')} className="input" />
+        <span className="text-xs text-text-muted">Puede ser negativo por sobregiro, intereses o extracreditado no pagado</span>
+      </label>
+
+      {/* Toggle doble balance */}
+      <div className="flex items-center justify-between py-2 border-t border-border">
+        <div>
+          <p className="text-sm font-medium text-text-primary">Doble balance (multi-moneda)</p>
+          <p className="text-xs text-text-muted">Activa si la tarjeta maneja dos monedas con límites independientes</p>
+        </div>
+        <button type="button" onClick={() => setForm(p => ({ ...p, dobleBalance: !p.dobleBalance }))}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none
+            ${form.dobleBalance ? 'bg-primary' : 'bg-border'}`}>
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
+            ${form.dobleBalance ? 'translate-x-6' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
+      {/* Balance secundario */}
+      {form.dobleBalance && (
+        <div className="bg-background/60 border border-border/60 rounded-xl p-4 space-y-3">
+          <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Balance secundario</p>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-sm text-text-secondary">
+              Moneda secundaria
+              <select value={form.monedaSecundaria} onChange={set('monedaSecundaria')} className="input">
+                {MONEDAS.filter(m => m.value !== form.moneda).map(m =>
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                )}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-text-secondary">
+              Límite secundario
+              <input type="number" step="0.01" min="0" value={form.limiteSecundario} onChange={set('limiteSecundario')} className="input" />
+            </label>
+          </div>
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Saldo secundario actual
+            <input type="number" step="0.01" value={form.saldoSecundario} onChange={set('saldoSecundario')} className="input" />
+            <span className="text-xs text-text-muted">Puede ser negativo por sobregiro o intereses</span>
+          </label>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3">
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
@@ -185,6 +239,10 @@ export function TarjetasPage() {
     tasaInteres: parseFloat(d.tasaInteres),
     diaCorte: parseInt(d.diaCorte),
     diaPago: parseInt(d.diaPago),
+    dobleBalance: d.dobleBalance,
+    monedaSecundaria: d.dobleBalance ? d.monedaSecundaria : null,
+    limiteSecundario: d.dobleBalance ? parseFloat(d.limiteSecundario) : null,
+    saldoSecundario:  d.dobleBalance ? parseFloat(d.saldoSecundario)  : null,
   })
 
   const create = useMutation({
@@ -254,14 +312,34 @@ export function TarjetasPage() {
                   <span className="font-semibold text-text-primary">{t.alias ?? `····${t.ultimosCuatro}`}</span>
                   {t.franquicia && <span className="text-xs px-1.5 py-0.5 rounded bg-border text-text-muted">{t.franquicia}</span>}
                   {t.categoriaTarjeta && <span className="text-xs px-1.5 py-0.5 rounded bg-border text-text-muted">{t.categoriaTarjeta}</span>}
+                  {t.dobleBalance && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">Multi-moneda</span>}
                   {!t.activa && <span className="text-xs px-1.5 py-0.5 rounded bg-warning/10 text-warning">Inactiva</span>}
                 </div>
                 <div className="text-xs text-text-muted mt-0.5">{t.banco} · ····{t.ultimosCuatro}</div>
+
+                {/* Balance principal */}
                 <UtilBar pct={util} />
                 <div className="flex items-center justify-between text-xs text-text-muted mt-1">
-                  <span>Usado: {fmt(t.saldoActual)}</span>
-                  <span>{util}% de {fmt(t.limite)}</span>
+                  {parseFloat(String(t.saldoActual)) < 0
+                    ? <span className="text-danger font-medium">⚠ Sobregiro: {fmt(Math.abs(parseFloat(String(t.saldoActual))))}</span>
+                    : <span>Usado: <span className={util >= 90 ? 'text-danger font-medium' : ''}>{fmt(t.saldoActual)}</span></span>
+                  }
+                  <span className="text-text-muted">{t.moneda} · {util}% de {fmt(t.limite)}</span>
                 </div>
+
+                {/* Balance secundario */}
+                {t.dobleBalance && t.monedaSecundaria && (
+                  <>
+                    <UtilBar pct={t.utilizacionSecundaria ?? 0} />
+                    <div className="flex items-center justify-between text-xs text-text-muted mt-1">
+                      {parseFloat(String(t.saldoSecundario ?? 0)) < 0
+                        ? <span className="text-danger font-medium">⚠ Sobregiro: {fmt(Math.abs(parseFloat(String(t.saldoSecundario ?? 0))))}</span>
+                        : <span>Usado: {fmt(t.saldoSecundario ?? 0)}</span>
+                      }
+                      <span className="text-text-muted">{t.monedaSecundaria} · {t.utilizacionSecundaria ?? 0}% de {fmt(t.limiteSecundario ?? 0)}</span>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
                 <button onClick={() => setModal({ type: 'edit', tarjeta: t })}
@@ -300,6 +378,10 @@ export function TarjetasPage() {
               limite: String(modal.tarjeta.limite), saldoActual: String(modal.tarjeta.saldoActual),
               tasaInteres: String(modal.tarjeta.tasaInteres), diaCorte: String(modal.tarjeta.diaCorte),
               diaPago: String(modal.tarjeta.diaPago), moneda: modal.tarjeta.moneda, activa: modal.tarjeta.activa,
+              dobleBalance: modal.tarjeta.dobleBalance ?? false,
+              monedaSecundaria: modal.tarjeta.monedaSecundaria ?? 'USD',
+              limiteSecundario: String(modal.tarjeta.limiteSecundario ?? '0'),
+              saldoSecundario: String(modal.tarjeta.saldoSecundario ?? '0'),
             }}
             onClose={closeModal} loading={update.isPending} error={modal.error}
             onSubmit={d => update.mutate({ id: modal.tarjeta.id, d: toPayload(d) })} />
