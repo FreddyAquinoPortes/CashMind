@@ -465,6 +465,7 @@ model Evento {
   subcategoria        Subcategoria? @relation(fields: [subcategoriaId], references: [id])
   notas               String?
   extraCreditoId  String?
+  deudaId         String?
   numeroCuota     Int?
   transacciones       Transaccion[]
 

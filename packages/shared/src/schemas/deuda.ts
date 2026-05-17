@@ -13,11 +13,14 @@ export const deudaSchema = z.object({
   saldoActual: z.number().min(0).optional(),
   moneda: z.string().default('DOP'),
   fechaInicio: z.coerce.date(),
-  fechaFin: z.coerce.date().optional(),
+  fechaFin: z.coerce.date().optional().nullable(),
   tasaInteres: z.number().min(0).nullish(),
   tipoPlazo: TipoPlazo,
   numeroCuotas: z.number().int().positive().nullish(),
+  diaCobro: z.number().int().min(1).max(31).nullish(),
   notas: z.string().nullish(),
+  // cuotas already paid before registration (used to skip past events)
+  cuotasPagadasAnteriores: z.number().int().min(0).default(0),
 })
 
 export type DeudaInput = z.infer<typeof deudaSchema>

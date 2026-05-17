@@ -86,32 +86,52 @@ interface DeudaForm {
 const EMPTY: DeudaForm = {
   personaId: '', concepto: '', tipo: 'PERSONAL', montoOriginal: '', saldoActual: '',
   moneda: 'DOP', fechaInicio: new Date().toISOString().slice(0, 10), fechaFin: '',
-  tasaInteres: '', tipoPlazo: 'FLEXIBLE', numeroCuotas: '', diaCobro: '', estado: 'ACTIVA', notas: '',
+  tasaInteres: '', tipoPlazo: 'FIJO', numeroCuotas: '', diaCobro: '', estado: 'ACTIVA', notas: '',
+}
+
+/** Add N months to a date string (YYYY-MM-DD), clamp to last day of month */
+function addMonthsStr(dateStr: string, n: number): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setMonth(d.getMonth() + n)
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  if (d.getDate() > lastDay) d.setDate(lastDay)
+  return d.toISOString().slice(0, 10)
 }
 
 function DeudaFormPanel({
-  initial, personas, onSubmit, onClose, loading, error,
+  initial, isEdit = false, personas, onSubmit, onClose, loading, error,
 }: {
-  initial?: DeudaForm; personas: Persona[]; onSubmit(d: DeudaForm): void
+  initial?: DeudaForm; isEdit?: boolean; personas: Persona[]
+  onSubmit(d: DeudaForm, cuotasPagadasAnteriores: number): void
   onClose(): void; loading: boolean; error?: string | null
 }) {
   const [form, setForm] = useState<DeudaForm>(initial ?? EMPTY)
+  const [confirmarPagadas, setConfirmarPagadas] = useState(false)
+
   const set = (k: keyof DeudaForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }))
+
   const isFijo = form.tipoPlazo === 'FIJO'
 
-  // Auto-calculate cuotas from date range when plazo=FIJO
+  // Auto-calculate fechaFin from fechaInicio + numeroCuotas (NEW direction)
   useEffect(() => {
-    if (form.tipoPlazo !== 'FIJO' || !form.fechaInicio || !form.fechaFin) return
-    const inicio = new Date(form.fechaInicio)
-    const fin    = new Date(form.fechaFin)
-    if (fin <= inicio) return
-    const meses = (fin.getFullYear() - inicio.getFullYear()) * 12 + (fin.getMonth() - inicio.getMonth())
-    if (meses > 0) setForm(p => ({ ...p, numeroCuotas: String(meses) }))
-  }, [form.fechaInicio, form.fechaFin, form.tipoPlazo])
+    if (!isFijo || !form.fechaInicio || !form.numeroCuotas) return
+    const n = parseInt(form.numeroCuotas)
+    if (n > 0) setForm(p => ({ ...p, fechaFin: addMonthsStr(p.fechaInicio, n) }))
+  }, [form.fechaInicio, form.numeroCuotas, form.tipoPlazo])
+
+  // Smart detection of already-paid cuotas
+  const montoOrig   = parseFloat(form.montoOriginal) || 0
+  const saldoAct    = parseFloat(form.saldoActual) || montoOrig
+  const nCuotas     = parseInt(form.numeroCuotas) || 0
+  const montoCuota  = nCuotas > 0 && montoOrig > 0 ? montoOrig / nCuotas : 0
+  const estimadaPagadas = (isFijo && montoCuota > 0 && saldoAct < montoOrig && !isEdit)
+    ? Math.max(0, Math.round((montoOrig - saldoAct) / montoCuota))
+    : 0
+  const cuotasPagadasAnteriores = confirmarPagadas ? estimadaPagadas : 0
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit(form) }} className="flex flex-col gap-4">
+    <form onSubmit={e => { e.preventDefault(); onSubmit(form, cuotasPagadasAnteriores) }} className="flex flex-col gap-4">
       {error && <div className="text-sm text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</div>}
 
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
@@ -125,7 +145,7 @@ function DeudaFormPanel({
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Concepto *
         <input required type="text" maxLength={150} value={form.concepto} onChange={set('concepto')}
-          className="input" placeholder="Ej. Préstamo para comida abril 2026" />
+          className="input" placeholder="Ej. Préstamo personal — diciembre 2025" />
       </label>
 
       <div className="grid grid-cols-2 gap-3">
@@ -146,45 +166,73 @@ function DeudaFormPanel({
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Monto original *
-          <input required type="number" step="0.01" min="0.01" value={form.montoOriginal} onChange={set('montoOriginal')} className="input" placeholder="0.00" />
+          <input required type="number" step="0.01" min="0.01" value={form.montoOriginal}
+            onChange={set('montoOriginal')} className="input" placeholder="0.00" />
         </label>
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Saldo actual
-          <input type="number" step="0.01" min="0" value={form.saldoActual} onChange={set('saldoActual')} className="input" placeholder="Igual al original" />
+          <input type="number" step="0.01" min="0" value={form.saldoActual}
+            onChange={set('saldoActual')} className="input" placeholder="Igual al original" />
         </label>
       </div>
 
+      {/* ── Tipo de plazo + cuotas PRIMERO ────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          Tipo de plazo
+          <select value={form.tipoPlazo} onChange={set('tipoPlazo')} className="input">
+            <option value="FIJO">Fijo (cuotas)</option>
+            <option value="FLEXIBLE">Flexible</option>
+          </select>
+        </label>
+        {isFijo ? (
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            N° cuotas *
+            <input required={isFijo} type="number" min="1" value={form.numeroCuotas}
+              onChange={set('numeroCuotas')} className="input" placeholder="12" />
+          </label>
+        ) : (
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Tasa de interés %
+            <input type="number" step="0.01" min="0" max="100" value={form.tasaInteres}
+              onChange={set('tasaInteres')} className="input" placeholder="0.00" />
+          </label>
+        )}
+      </div>
+
+      {/* ── Fechas (fechaFin se auto-calcula si es FIJO) ──────────────────── */}
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Fecha inicio *
           <input required type="date" value={form.fechaInicio} onChange={set('fechaInicio')} className="input" />
         </label>
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
-          Fecha fin
-          <input type="date" value={form.fechaFin} onChange={set('fechaFin')} className="input" />
+          Fecha fin {isFijo && <span className="text-xs text-primary">(calculada)</span>}
+          <input type="date" value={form.fechaFin} onChange={set('fechaFin')} className="input"
+            readOnly={isFijo} style={{ opacity: isFijo ? 0.7 : 1 }} />
         </label>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1 text-sm text-text-secondary">
-          Tipo de plazo
-          <select value={form.tipoPlazo} onChange={set('tipoPlazo')} className="input">
-            <option value="FLEXIBLE">Flexible</option>
-            <option value="FIJO">Fijo (cuotas)</option>
-          </select>
+      {/* ── Smart: cuotas pagadas anteriormente ──────────────────────────── */}
+      {estimadaPagadas > 0 && (
+        <label className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={confirmarPagadas}
+            onChange={e => setConfirmarPagadas(e.target.checked)}
+            className="mt-0.5 accent-amber-500"
+          />
+          <div>
+            <p className="text-sm font-medium text-amber-500">
+              Se detectaron {estimadaPagadas} cuota{estimadaPagadas !== 1 ? 's' : ''} pagada{estimadaPagadas !== 1 ? 's' : ''} anteriormente
+            </p>
+            <p className="text-xs text-text-muted mt-0.5">
+              Marca esta casilla para confirmar y no generar eventos ya vencidos
+              ({estimadaPagadas}/{nCuotas} pagadas · solo se crearán {nCuotas - estimadaPagadas} eventos)
+            </p>
+          </div>
         </label>
-        {isFijo ? (
-          <label className="flex flex-col gap-1 text-sm text-text-secondary">
-            N° cuotas *
-            <input required={isFijo} type="number" min="1" value={form.numeroCuotas} onChange={set('numeroCuotas')} className="input" placeholder="12" />
-          </label>
-        ) : (
-          <label className="flex flex-col gap-1 text-sm text-text-secondary">
-            Tasa de interés %
-            <input type="number" step="0.01" min="0" max="100" value={form.tasaInteres} onChange={set('tasaInteres')} className="input" placeholder="0.00" />
-          </label>
-        )}
-      </div>
+      )}
 
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Estado
@@ -197,7 +245,8 @@ function DeudaFormPanel({
 
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Notas
-        <textarea value={form.notas} onChange={set('notas')} className="input resize-none" rows={2} placeholder="Información adicional..." />
+        <textarea value={form.notas} onChange={set('notas')} className="input resize-none" rows={2}
+          placeholder="Información adicional..." />
       </label>
 
       <div className="flex gap-2 justify-end mt-2">
@@ -507,7 +556,7 @@ type ModalState =
   | { type: 'pago'; deuda: Deuda; error?: string }
   | null
 
-const toPayload = (d: DeudaForm) => ({
+const toPayload = (d: DeudaForm, cuotasPagadasAnteriores = 0) => ({
   personaId: d.personaId,
   concepto: d.concepto || null,
   tipo: d.tipo,
@@ -522,6 +571,7 @@ const toPayload = (d: DeudaForm) => ({
   diaCobro: d.diaCobro ? parseInt(d.diaCobro) : null,
   estado: d.estado,
   notas: d.notas || null,
+  cuotasPagadasAnteriores,
 })
 
 export function DeudasPage() {
@@ -687,12 +737,13 @@ export function DeudasPage() {
           <DeudaFormPanel
             initial={newFormInitial(modal.prePersonaId)}
             personas={personas} onClose={closeModal} loading={create.isPending} error={modal.error}
-            onSubmit={d => create.mutate(toPayload(d))} />
+            onSubmit={(d, cuotasPagadas) => create.mutate(toPayload(d, cuotasPagadas))} />
         </Modal>
       )}
       {modal?.type === 'edit' && (
         <Modal title="Editar deuda" onClose={closeModal}>
           <DeudaFormPanel
+            isEdit
             initial={{
               personaId: modal.deuda.personaId ?? '',
               concepto: modal.deuda.concepto ?? '',
@@ -710,7 +761,7 @@ export function DeudasPage() {
               notas: modal.deuda.notas ?? '',
             }}
             personas={personas} onClose={closeModal} loading={update.isPending} error={modal.error}
-            onSubmit={d => update.mutate({ id: modal.deuda.id, d: toPayload(d) })} />
+            onSubmit={(d) => update.mutate({ id: modal.deuda.id, d: toPayload(d) })} />
         </Modal>
       )}
       {modal?.type === 'delete' && (

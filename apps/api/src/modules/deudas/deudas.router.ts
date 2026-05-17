@@ -33,6 +33,12 @@ deudasRouter.delete('/deudas/:id', requireAuth, async (req: AuthRequest, res, ne
   } catch (err) { next(err) }
 })
 
+deudasRouter.get('/deudas/:id/pagos', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    res.json({ data: await svc.listPagos(req.params.id!) })
+  } catch (err) { next(err) }
+})
+
 deudasRouter.post('/deudas/:id/pagos', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     res.status(201).json({ data: await svc.registrarPago(req.params.id!, req.body) })

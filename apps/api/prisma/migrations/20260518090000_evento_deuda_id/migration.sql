@@ -1,0 +1,1 @@
+ALTER TABLE "Evento" ADD COLUMN "deudaId" TEXT;
