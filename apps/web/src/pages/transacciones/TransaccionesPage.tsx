@@ -418,6 +418,16 @@ export function TransaccionesPage() {
   }
 
   // Queries
+  const { data: deletables = [] } = useQuery<string[]>({
+    queryKey: ['transacciones-deletables', cid],
+    queryFn: async () => {
+      const { data } = await api.get(`/clientes/${cid}/transacciones/deletables`)
+      return data.data.ids as string[]
+    },
+    enabled: !!cid,
+    staleTime: 0,  // always fresh after mutations
+  })
+
   const { data: txData, isLoading: txLoading } = useQuery<PaginatedResponse<Transaccion>>({
     queryKey: ['transacciones', filters, page],
     queryFn: async () => {
@@ -461,6 +471,7 @@ export function TransaccionesPage() {
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['transacciones'] })
+    qc.invalidateQueries({ queryKey: ['transacciones-deletables'] })
     qc.invalidateQueries({ queryKey: ['deudas'] })
     qc.invalidateQueries({ queryKey: ['cuentas'] })
   }
@@ -754,13 +765,22 @@ export function TransaccionesPage() {
                       >
                         <PencilIcon className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => setModal({ type: 'delete', tx })}
-                        className="p-1.5 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
-                        title="Eliminar"
-                      >
-                        <TrashIcon className="w-4 h-4" />
-                      </button>
+                      {deletables.includes(tx.id) ? (
+                        <button
+                          onClick={() => setModal({ type: 'delete', tx })}
+                          className="p-1.5 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                          title="Eliminar (revierte saldo)"
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <span
+                          className="p-1.5 rounded text-text-muted/30 cursor-not-allowed"
+                          title="Solo puedes eliminar las 5 transacciones más recientes"
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </span>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -845,9 +865,19 @@ export function TransaccionesPage() {
       {modal?.type === 'delete' && (
         <Modal title="Eliminar transacción" onClose={() => setModal(null)}>
           <p className="text-text-secondary text-sm mb-2">
-            ¿Seguro que quieres eliminar la transacción{' '}
+            ¿Seguro que quieres eliminar{' '}
             <strong className="text-text-primary">{modal.tx.concepto}</strong>?
           </p>
+          {modal.tx.cuentaId && (modal.tx.tipo === 'GASTO' || modal.tx.tipo === 'INGRESO') && (
+            <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2.5 mb-3">
+              <span className="text-amber-400 text-base leading-none mt-0.5">↩</span>
+              <p className="text-xs text-amber-300">
+                El saldo de la cuenta asociada será revertido:
+                {' '}<strong>{modal.tx.tipo === 'GASTO' ? `+${parseFloat(String(modal.tx.monto)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : `-${parseFloat(String(modal.tx.monto)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}`}</strong>{' '}
+                DOP.
+              </p>
+            </div>
+          )}
           <p className="text-text-muted text-xs mb-6">Esta acción no se puede deshacer.</p>
           <div className="flex gap-2 justify-end">
             <button className="btn-ghost" onClick={() => setModal(null)}>Cancelar</button>
@@ -856,7 +886,7 @@ export function TransaccionesPage() {
               disabled={deleteTx.isPending}
               onClick={() => deleteTx.mutate(modal.tx.id)}
             >
-              {deleteTx.isPending ? 'Eliminando…' : 'Eliminar'}
+              {deleteTx.isPending ? 'Eliminando…' : 'Sí, eliminar y revertir'}
             </button>
           </div>
         </Modal>

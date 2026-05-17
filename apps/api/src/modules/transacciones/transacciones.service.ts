@@ -125,7 +125,42 @@ export class TransaccionesService {
     })
   }
 
+  /** IDs of the last N transactions for a client (by creation time) — the only ones deletable */
+  async deletables(clienteId: string, n = 5): Promise<string[]> {
+    const rows = await prisma.transaccion.findMany({
+      where: { clienteId },
+      orderBy: { createdAt: 'desc' },
+      take: n,
+      select: { id: true },
+    })
+    return rows.map(r => r.id)
+  }
+
   async remove(id: string) {
-    return prisma.transaccion.delete({ where: { id } })
+    const tx = await prisma.transaccion.findUniqueOrThrow({ where: { id } })
+
+    // Verify this is among the 5 most recently registered transactions
+    const allowed = await this.deletables(tx.clienteId)
+    if (!allowed.includes(id)) {
+      throw Object.assign(
+        new Error('Solo puedes eliminar las 5 transacciones registradas más recientemente.'),
+        { status: 403 },
+      )
+    }
+
+    await prisma.$transaction(async trx => {
+      // Revert account balance change caused by this transaction
+      if (tx.cuentaId && (tx.tipo === 'GASTO' || tx.tipo === 'INGRESO')) {
+        // create() applied: INGRESO → +monto, GASTO → -monto. Reverse it.
+        const revertDelta = tx.tipo === 'INGRESO' ? -Number(tx.monto) : Number(tx.monto)
+        await trx.cuentaBancaria.update({
+          where: { id: tx.cuentaId },
+          data: { saldo: { increment: revertDelta } },
+        })
+      }
+      await trx.transaccion.delete({ where: { id } })
+    })
+
+    return { ok: true, reverted: !!(tx.cuentaId && (tx.tipo === 'GASTO' || tx.tipo === 'INGRESO')) }
   }
 }

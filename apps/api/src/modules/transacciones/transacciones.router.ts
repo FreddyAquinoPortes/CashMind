@@ -20,6 +20,15 @@ transaccionesRouter.post('/clientes/:clienteId/transacciones', requireAuth, asyn
   } catch (err) { next(err) }
 })
 
+// Must be declared BEFORE /transacciones/:id to avoid Express matching "deletables" as :id
+transaccionesRouter.get('/clientes/:clienteId/transacciones/deletables', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    await requireCliente(req.params.clienteId!, req.user!.id)
+    const ids = await svc.deletables(req.params.clienteId!)
+    res.json({ data: { ids } })
+  } catch (err) { next(err) }
+})
+
 transaccionesRouter.patch('/transacciones/:id', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     res.json({ data: await svc.update(req.params.id!, req.body) })
