@@ -231,6 +231,8 @@ interface ExtraCreditoForm {
   fechaInicio: string
   diaPago: string
   moneda: string
+  categoriaId: string
+  subcategoriaId: string
 }
 
 function NuevoExtraCreditoModal({
@@ -240,6 +242,13 @@ function NuevoExtraCreditoModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
+  const { data: categorias = [] } = useQuery({
+    queryKey: ['categorias', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/categorias`)).data.data,
+    enabled: !!cid,
+  })
+
   const hoy = new Date().toISOString().slice(0, 10)
   const [form, setForm] = useState<ExtraCreditoForm>({
     descripcion: '',
@@ -249,6 +258,8 @@ function NuevoExtraCreditoModal({
     fechaInicio: hoy,
     diaPago: String(tarjeta.diaPago),
     moneda: tarjeta.moneda,
+    categoriaId: '',
+    subcategoriaId: '',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -274,6 +285,8 @@ function NuevoExtraCreditoModal({
         fechaInicio: form.fechaInicio,
         diaPago: parseInt(form.diaPago),
         moneda: form.moneda,
+        categoriaId: form.categoriaId || null,
+        subcategoriaId: form.subcategoriaId || null,
       })
       onSuccess()
     } catch (err: any) {
@@ -323,6 +336,26 @@ function NuevoExtraCreditoModal({
 
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Categoría
+            <select value={form.categoriaId} onChange={set('categoriaId')} className="input"
+              onClick={() => setForm(p => ({ ...p, subcategoriaId: '' }))}>
+              <option value="">— Sin categoría —</option>
+              {categorias.map((c: any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Subcategoría
+            <select value={form.subcategoriaId} onChange={set('subcategoriaId')} className="input"
+              disabled={!form.categoriaId}>
+              <option value="">— Sin subcategoría —</option>
+              {(categorias.find((c: any) => c.id === form.categoriaId)?.subcategorias ?? [])
+                .map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
             Fecha de inicio
             <input type="date" value={form.fechaInicio} onChange={set('fechaInicio')} className="input" />
           </label>
@@ -361,10 +394,18 @@ function RegistrarPagoModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
+  const { data: cuentas = [] } = useQuery({
+    queryKey: ['cuentas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/cuentas`)).data.data,
+    enabled: !!cid,
+  })
+
   const hoy = new Date().toISOString().slice(0, 10)
   const [monto, setMonto] = useState(parseFloat(String(ec.montoCuota)).toFixed(2))
   const [fecha, setFecha] = useState(hoy)
   const [notas, setNotas] = useState('')
+  const [cuentaId, setCuentaId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -377,6 +418,7 @@ function RegistrarPagoModal({
         monto: parseFloat(monto),
         fecha,
         notas: notas || null,
+        cuentaId: cuentaId || null,
       })
       onSuccess()
     } catch (err: any) {
@@ -397,6 +439,35 @@ function RegistrarPagoModal({
           <p className="text-text-muted text-xs mt-1">
             Saldo pendiente: {ec.moneda} {parseFloat(String(ec.saldoPendiente)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
           </p>
+        </div>
+
+        {/* Account selector */}
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
+          Cuenta para el pago *
+          <select
+            value={cuentaId}
+            onChange={e => setCuentaId(e.target.value)}
+            className="input"
+            required
+          >
+            <option value="">— Seleccionar cuenta —</option>
+            {cuentas.filter((c: any) => c.activa).map((c: any) => (
+              <option key={c.id} value={c.id}>
+                {c.alias ?? c.banco} — {c.moneda} {parseFloat(String(c.saldo)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+              </option>
+            ))}
+          </select>
+          {/* Balance warning */}
+          {(() => {
+            const sel = cuentas.find((c: any) => c.id === cuentaId)
+            if (!sel) return null
+            const saldo = parseFloat(String(sel.saldo))
+            const montoNum = parseFloat(monto) || 0
+            if (saldo < montoNum) {
+              return <span className="text-xs text-danger">⚠ Saldo insuficiente: {sel.moneda} {saldo.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</span>
+            }
+            return <span className="text-xs text-success">Disponible: {sel.moneda} {saldo.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</span>
+          })()}
         </div>
 
         <label className="flex flex-col gap-1 text-sm text-text-secondary">

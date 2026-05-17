@@ -92,6 +92,8 @@ export interface ExtraCredito {
   diaPago: number
   estado: EstadoExtraCredito
   moneda: string
+  categoriaId: string | null
+  subcategoriaId: string | null
   pagos: PagoExtraCredito[]
   // computed
   cuotasRestantes: number

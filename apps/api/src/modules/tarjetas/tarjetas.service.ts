@@ -32,21 +32,33 @@ const extraCreditoSchema = z.object({
   montoOriginal: z.number().positive(),
   tasaInteres: z.number().min(0).default(0),
   numeroCuotas: z.number().int().positive(),
-  fechaInicio: z.string(), // ISO date string
+  fechaInicio: z.string(),
   diaPago: z.number().int().min(1).max(31),
   moneda: z.string().default('DOP'),
+  categoriaId: z.string().optional().nullable(),
+  subcategoriaId: z.string().optional().nullable(),
 })
 
 const pagoExtraCreditoSchema = z.object({
   monto: z.number().positive(),
   fecha: z.string(),
   notas: z.string().optional().nullable(),
+  cuentaId: z.string().optional().nullable(),
 })
 
 function calcMontoCuota(monto: number, tasaInteres: number, numeroCuotas: number): number {
   if (tasaInteres === 0) return monto / numeroCuotas
   const r = (tasaInteres / 100) / 12
   return (monto * r) / (1 - Math.pow(1 + r, -numeroCuotas))
+}
+
+function calcFechaCuota(fechaInicio: Date, diaPago: number, cuotaNum: number): Date {
+  const d = new Date(fechaInicio)
+  d.setMonth(d.getMonth() + cuotaNum)
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  d.setDate(Math.min(diaPago, lastDay))
+  d.setHours(9, 0, 0, 0)
+  return d
 }
 
 export class TarjetasService {
@@ -151,6 +163,9 @@ export class TarjetasService {
       throw Object.assign(new Error('El monto no puede exceder el límite de crédito de la tarjeta'), { status: 422 })
     }
     const montoCuota = calcMontoCuota(d.montoOriginal, d.tasaInteres, d.numeroCuotas)
+    const montoCuotaRounded = Math.round(montoCuota * 100) / 100
+    const fechaInicio = new Date(d.fechaInicio)
+
     const [ec] = await prisma.$transaction([
       prisma.extraCredito.create({
         data: {
@@ -160,19 +175,39 @@ export class TarjetasService {
           saldoPendiente: d.montoOriginal,
           tasaInteres: d.tasaInteres,
           numeroCuotas: d.numeroCuotas,
-          montoCuota: Math.round(montoCuota * 100) / 100,
-          fechaInicio: new Date(d.fechaInicio),
+          montoCuota: montoCuotaRounded,
+          fechaInicio,
           diaPago: d.diaPago,
           moneda: d.moneda,
+          categoriaId: d.categoriaId ?? null,
+          subcategoriaId: d.subcategoriaId ?? null,
         },
         include: { pagos: true },
       }),
-      // Auto-enable tieneExtraCredito on the card if not already set
       prisma.tarjetaCredito.update({
         where: { id: tarjetaId },
         data: { tieneExtraCredito: true },
       }),
     ])
+
+    // Create one event per cuota (outside transaction to avoid timeout on large cuota counts)
+    const eventosData = Array.from({ length: d.numeroCuotas }, (_, i) => ({
+      clienteId: tarjeta.clienteId,
+      nombre: `EC: ${d.descripcion ?? 'ExtraCredito'} - Cuota ${i + 1}/${d.numeroCuotas}`,
+      tipo: 'PAGO_PROGRAMADO',
+      fecha: calcFechaCuota(fechaInicio, d.diaPago, i + 1),
+      recurrente: false,
+      presupuestoEstimado: montoCuotaRounded,
+      moneda: d.moneda,
+      estado: 'PLANIFICADO' as const,
+      prioridad: 3,
+      categoriaId: d.categoriaId ?? null,
+      subcategoriaId: d.subcategoriaId ?? null,
+      extraCreditoId: ec.id,
+      numeroCuota: i + 1,
+    }))
+    await prisma.evento.createMany({ data: eventosData })
+
     return ec
   }
 
@@ -192,30 +227,92 @@ export class TarjetasService {
 
   async registrarPagoExtraCredito(extraCreditoId: string, body: unknown) {
     const d = pagoExtraCreditoSchema.parse(body)
-    const ec = await prisma.extraCredito.findUniqueOrThrow({ where: { id: extraCreditoId } })
+    const ec = await prisma.extraCredito.findUniqueOrThrow({
+      where: { id: extraCreditoId },
+      include: { tarjeta: { select: { clienteId: true } } },
+    })
+
+    // Validate account balance if cuenta provided
+    if (d.cuentaId) {
+      const cuenta = await prisma.cuentaBancaria.findUnique({ where: { id: d.cuentaId } })
+      if (!cuenta) throw Object.assign(new Error('Cuenta no encontrada'), { status: 404 })
+      const saldo = Number(cuenta.saldo)
+      if (saldo < d.monto) {
+        throw Object.assign(
+          new Error(`Saldo insuficiente. La cuenta "${cuenta.alias ?? cuenta.banco}" tiene ${cuenta.moneda} ${saldo.toFixed(2)} y el pago requiere ${d.monto.toFixed(2)}`),
+          { status: 422 }
+        )
+      }
+    }
+
     const nuevoSaldo = Math.max(0, Number(ec.saldoPendiente) - d.monto)
     const nuevasCuotasPagadas = ec.cuotasPagadas + 1
     const estado = nuevoSaldo <= 0 ? ('PAGADO' as const) : ec.estado
+    const numeroCuotaActual = nuevasCuotasPagadas // this is the cuota being paid (1-based)
+    const clienteId = ec.tarjeta.clienteId
 
-    const [pago] = await prisma.$transaction([
-      prisma.pagoExtraCredito.create({
+    return prisma.$transaction(async (tx) => {
+      // 1. Create Transaccion if account selected
+      let transaccionId: string | null = null
+      if (d.cuentaId) {
+        const t = await tx.transaccion.create({
+          data: {
+            clienteId,
+            concepto: `Cuota ${numeroCuotaActual}/${ec.numeroCuotas} - ${ec.descripcion ?? 'ExtraCredito'}`,
+            monto: d.monto,
+            moneda: ec.moneda,
+            tipo: 'GASTO',
+            estado: 'EJECUTADO',
+            fecha: new Date(d.fecha),
+            cuentaId: d.cuentaId,
+            categoriaId: ec.categoriaId ?? null,
+            subcategoriaId: ec.subcategoriaId ?? null,
+            notas: d.notas ?? null,
+            frecuencia: 'UNICA',
+          },
+        })
+        transaccionId = t.id
+      }
+
+      // 2. Deduct from account balance
+      if (d.cuentaId) {
+        await tx.cuentaBancaria.update({
+          where: { id: d.cuentaId },
+          data: { saldo: { decrement: d.monto } },
+        })
+      }
+
+      // 3. Create pago record
+      const pago = await tx.pagoExtraCredito.create({
         data: {
           extraCreditoId,
           monto: d.monto,
           fecha: new Date(d.fecha),
           notas: d.notas ?? null,
+          cuentaId: d.cuentaId ?? null,
+          transaccionId,
         },
-      }),
-      prisma.extraCredito.update({
+      })
+
+      // 4. Update ExtraCredito
+      await tx.extraCredito.update({
         where: { id: extraCreditoId },
-        data: {
-          saldoPendiente: nuevoSaldo,
-          cuotasPagadas: nuevasCuotasPagadas,
-          estado,
-        },
-      }),
-    ])
-    return pago
+        data: { saldoPendiente: nuevoSaldo, cuotasPagadas: nuevasCuotasPagadas, estado },
+      })
+
+      // 5. Mark the event for this cuota as EJECUTADO
+      const evento = await tx.evento.findFirst({
+        where: { extraCreditoId, numeroCuota: numeroCuotaActual },
+      })
+      if (evento) {
+        await tx.evento.update({
+          where: { id: evento.id },
+          data: { estado: 'EJECUTADO' },
+        })
+      }
+
+      return pago
+    })
   }
 
   async updateExtraCredito(id: string, body: unknown) {
@@ -239,6 +336,7 @@ export class TarjetasService {
   }
 
   async deleteExtraCredito(id: string) {
+    await prisma.evento.deleteMany({ where: { extraCreditoId: id } })
     return prisma.extraCredito.delete({ where: { id } })
   }
 }

@@ -281,6 +281,8 @@ model ExtraCredito {
   diaPago         Int
   estado          EstadoExtraCredito  @default(ACTIVO)
   moneda          String              @default("DOP")
+  categoriaId     String?
+  subcategoriaId  String?
   pagos           PagoExtraCredito[]
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
@@ -295,6 +297,8 @@ model PagoExtraCredito {
   monto          Decimal      @db.Decimal(15, 2)
   fecha          DateTime
   notas          String?
+  cuentaId        String?
+  transaccionId   String?           @unique
   createdAt      DateTime     @default(now())
 }
 
@@ -460,6 +464,8 @@ model Evento {
   subcategoriaId      String?
   subcategoria        Subcategoria? @relation(fields: [subcategoriaId], references: [id])
   notas               String?
+  extraCreditoId  String?
+  numeroCuota     Int?
   transacciones       Transaccion[]
 
   @@index([clienteId, fecha])
