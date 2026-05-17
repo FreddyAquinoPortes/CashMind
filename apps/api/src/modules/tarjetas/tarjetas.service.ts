@@ -151,21 +151,29 @@ export class TarjetasService {
       throw Object.assign(new Error('El monto no puede exceder el límite de crédito de la tarjeta'), { status: 422 })
     }
     const montoCuota = calcMontoCuota(d.montoOriginal, d.tasaInteres, d.numeroCuotas)
-    return prisma.extraCredito.create({
-      data: {
-        tarjetaId,
-        descripcion: d.descripcion ?? null,
-        montoOriginal: d.montoOriginal,
-        saldoPendiente: d.montoOriginal,
-        tasaInteres: d.tasaInteres,
-        numeroCuotas: d.numeroCuotas,
-        montoCuota: Math.round(montoCuota * 100) / 100,
-        fechaInicio: new Date(d.fechaInicio),
-        diaPago: d.diaPago,
-        moneda: d.moneda,
-      },
-      include: { pagos: true },
-    })
+    const [ec] = await prisma.$transaction([
+      prisma.extraCredito.create({
+        data: {
+          tarjetaId,
+          descripcion: d.descripcion ?? null,
+          montoOriginal: d.montoOriginal,
+          saldoPendiente: d.montoOriginal,
+          tasaInteres: d.tasaInteres,
+          numeroCuotas: d.numeroCuotas,
+          montoCuota: Math.round(montoCuota * 100) / 100,
+          fechaInicio: new Date(d.fechaInicio),
+          diaPago: d.diaPago,
+          moneda: d.moneda,
+        },
+        include: { pagos: true },
+      }),
+      // Auto-enable tieneExtraCredito on the card if not already set
+      prisma.tarjetaCredito.update({
+        where: { id: tarjetaId },
+        data: { tieneExtraCredito: true },
+      }),
+    ])
+    return ec
   }
 
   async listExtraCreditos(tarjetaId: string) {

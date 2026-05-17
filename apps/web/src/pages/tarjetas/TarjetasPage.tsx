@@ -56,15 +56,12 @@ interface TarjetaForm {
   monedaSecundaria: string
   limiteSecundario: string
   saldoSecundario: string
-  // ExtraCredito
-  tieneExtraCredito: boolean
 }
 
 const EMPTY: TarjetaForm = {
   alias: '', banco: '', ultimosCuatro: '', franquicia: '', tipoTarjeta: 'CREDITO', categoriaTarjeta: '',
   limite: '0', saldoActual: '0', tasaInteres: '0', diaCorte: '1', diaPago: '15', moneda: 'DOP', activa: true,
   dobleBalance: false, monedaSecundaria: 'USD', limiteSecundario: '0', saldoSecundario: '0',
-  tieneExtraCredito: false,
 }
 
 function TarjetaFormPanel({
@@ -182,20 +179,6 @@ function TarjetaFormPanel({
           </label>
         </div>
       )}
-
-      {/* Toggle ExtraCredito */}
-      <div className="flex items-center justify-between py-2 border-t border-border">
-        <div>
-          <p className="text-sm font-medium text-text-primary">ExtraCredito</p>
-          <p className="text-xs text-text-muted">La tarjeta permite préstamos en cuotas sobre el límite disponible</p>
-        </div>
-        <button type="button" onClick={() => setForm(p => ({ ...p, tieneExtraCredito: !p.tieneExtraCredito }))}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none
-            ${form.tieneExtraCredito ? 'bg-primary' : 'bg-border'}`}>
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
-            ${form.tieneExtraCredito ? 'translate-x-6' : 'translate-x-1'}`} />
-        </button>
-      </div>
 
       <div className="grid grid-cols-3 gap-3">
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
@@ -479,18 +462,29 @@ function ExtraCreditoSection({ tarjeta, onRefresh }: { tarjeta: TarjetaCredito; 
       )}
 
       <div className="mt-3 border-t border-border/60 pt-3">
-        <button
-          type="button"
-          onClick={() => setExpanded(p => !p)}
-          className="flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-primary transition-colors w-full"
-        >
-          {expanded ? <ChevronUpIcon className="w-3.5 h-3.5" /> : <ChevronDownIcon className="w-3.5 h-3.5" />}
-          <span>ExtraCreditos</span>
-          {activos.length > 0 && (
-            <span className="ml-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs">{activos.length} activo{activos.length !== 1 ? 's' : ''}</span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setExpanded(p => !p)}
+            className="flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-primary transition-colors flex-1"
+          >
+            {expanded ? <ChevronUpIcon className="w-3.5 h-3.5" /> : <ChevronDownIcon className="w-3.5 h-3.5" />}
+            <span>ExtraCreditos</span>
+            {activos.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs">{activos.length} activo{activos.length !== 1 ? 's' : ''}</span>
+            )}
+          </button>
+          {!expanded && (
+            <button
+              onClick={() => setShowNuevoModal(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold
+                bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/25
+                transition-colors"
+            >
+              <PlusIcon className="w-3 h-3" /> Nuevo
+            </button>
           )}
-          <span className="ml-auto" />
-        </button>
+        </div>
 
         {expanded && (
           <div className="mt-2 flex flex-col gap-2">
@@ -543,9 +537,11 @@ function ExtraCreditoSection({ tarjeta, onRefresh }: { tarjeta: TarjetaCredito; 
 
             <button
               onClick={() => setShowNuevoModal(true)}
-              className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors py-1"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold
+                bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/25
+                transition-colors self-start"
             >
-              <PlusIcon className="w-3.5 h-3.5" /> Nuevo ExtraCredito
+              <PlusIcon className="w-3 h-3" /> Nuevo ExtraCredito
             </button>
           </div>
         )}
@@ -593,7 +589,6 @@ export function TarjetasPage() {
     monedaSecundaria: d.dobleBalance ? d.monedaSecundaria : null,
     limiteSecundario: d.dobleBalance ? parseFloat(d.limiteSecundario) : null,
     saldoSecundario:  d.dobleBalance ? parseFloat(d.saldoSecundario)  : null,
-    tieneExtraCredito: d.tieneExtraCredito,
   })
 
   const create = useMutation({
@@ -693,8 +688,8 @@ export function TarjetasPage() {
                   </>
                 )}
 
-                {/* ExtraCredito section */}
-                {t.tieneExtraCredito && (
+                {/* ExtraCredito section — always visible for credit cards */}
+                {(t.tipoTarjeta === 'CREDITO' || t.tipoTarjeta === null) && (
                   <ExtraCreditoSection tarjeta={t} onRefresh={invalidate} />
                 )}
               </div>
@@ -739,7 +734,6 @@ export function TarjetasPage() {
               monedaSecundaria: modal.tarjeta.monedaSecundaria ?? 'USD',
               limiteSecundario: String(modal.tarjeta.limiteSecundario ?? '0'),
               saldoSecundario: String(modal.tarjeta.saldoSecundario ?? '0'),
-              tieneExtraCredito: modal.tarjeta.tieneExtraCredito ?? false,
             }}
             onClose={closeModal} loading={update.isPending} error={modal.error}
             onSubmit={d => update.mutate({ id: modal.tarjeta.id, d: toPayload(d) })} />
