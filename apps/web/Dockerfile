@@ -15,6 +15,10 @@ RUN npm ci --workspace=packages/shared --workspace=apps/web --include-workspace-
 COPY packages/shared ./packages/shared
 COPY apps/web ./apps/web
 
+# Build args for Vite (must be declared to be available at build time)
+ARG VITE_GOOGLE_CLIENT_ID
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+
 # Build shared, then web
 RUN npm run build --workspace=packages/shared
 RUN npm run build --workspace=apps/web
