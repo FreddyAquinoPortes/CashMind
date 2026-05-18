@@ -135,6 +135,7 @@ combustibleRouter.get('/combustible/precios/tipo/:tipo', requireAuth, async (req
 combustibleRouter.get('/clientes/:clienteId/combustible/calculo', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     await requireCliente(req.params.clienteId!, req.user!.id)
-    res.json({ data: await svc.calcular(req.params.clienteId!) })
+    const { inicio, fin } = req.query as { inicio?: string; fin?: string }
+    res.json({ data: await svc.calcular(req.params.clienteId!, { inicio, fin }) })
   } catch (err) { next(err) }
 })

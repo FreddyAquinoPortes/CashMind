@@ -33,6 +33,7 @@ const rutaSchema = z.object({
   distanciaKm: z.number().positive(),
   frecuenciaValor: z.number().int().min(1).max(365).default(5),
   frecuenciaUnidad: z.enum(['dia', 'semana', 'mes']).default('semana'),
+  diasSemana: z.string().optional().nullable(),
   tipoCombustible: z.string().default('Gasolina Regular'),
   porcentajePropio: z.number().min(0).max(100).default(100),
   rendimientoManual: z.number().positive().optional().nullable(),
@@ -136,6 +137,20 @@ async function scrapeDRFuelPrices(): Promise<{ tipo: string; precio: number; uni
   return results
 }
 
+// Count occurrences of specific weekdays in a date range
+function countDaysInPeriod(diasSemana: number[], start: Date, end: Date): number {
+  let count = 0
+  const d = new Date(start)
+  d.setHours(0, 0, 0, 0)
+  const endD = new Date(end)
+  endD.setHours(23, 59, 59, 999)
+  while (d <= endD) {
+    if (diasSemana.includes(d.getDay())) count++
+    d.setDate(d.getDate() + 1)
+  }
+  return count
+}
+
 export class CombustibleService {
   // ── Vehículos ──────────────────────────────────────────────────────────────
   async listVehiculos(clienteId: string) {
@@ -237,6 +252,7 @@ export class CombustibleService {
         distanciaKm: d.distanciaKm,
         frecuenciaValor: d.frecuenciaValor,
         frecuenciaUnidad: d.frecuenciaUnidad,
+        diasSemana: d.diasSemana ?? null,
         tipoCombustible: d.tipoCombustible,
         porcentajePropio: d.porcentajePropio,
         rendimientoManual: d.rendimientoManual ?? null,
@@ -256,6 +272,7 @@ export class CombustibleService {
         ...(d.distanciaKm !== undefined && { distanciaKm: d.distanciaKm }),
         ...(d.frecuenciaValor !== undefined && { frecuenciaValor: d.frecuenciaValor }),
         ...(d.frecuenciaUnidad !== undefined && { frecuenciaUnidad: d.frecuenciaUnidad }),
+        ...('diasSemana' in d && { diasSemana: d.diasSemana ?? null }),
         ...('rendimientoManual' in d && { rendimientoManual: d.rendimientoManual ?? null }),
         ...(d.unidadRendimiento !== undefined && { unidadRendimiento: d.unidadRendimiento }),
         ...(d.tipoCombustible !== undefined && { tipoCombustible: d.tipoCombustible }),
@@ -359,7 +376,7 @@ export class CombustibleService {
   }
 
   // ── Cálculo Principal ──────────────────────────────────────────────────────
-  async calcular(clienteId: string) {
+  async calcular(clienteId: string, opts?: { inicio?: string; fin?: string }) {
     const rutas = await prisma.ruta.findMany({
       where: { clienteId, activa: true },
       include: {
@@ -376,6 +393,15 @@ export class CombustibleService {
         preciosPorTipo[tipo as string] = p ? Number(p.precio) : 293.5
       })
     )
+
+    let periodDays: number | null = null
+    let periodoInicio: Date | null = null
+    let periodoFin: Date | null = null
+    if (opts?.inicio && opts?.fin) {
+      periodoInicio = new Date(opts.inicio + 'T00:00:00')
+      periodoFin = new Date(opts.fin + 'T23:59:59')
+      periodDays = Math.round((periodoFin.getTime() - periodoInicio.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    }
 
     const detalleRutas = rutas.map(ruta => {
       const dist = Number(ruta.distanciaKm)
@@ -433,6 +459,36 @@ export class CombustibleService {
         costoNeto = costoTotal * porcentaje
       }
 
+      // Period km calculation
+      let kmPeriodo: number | null = null
+      if (periodDays !== null && periodoInicio && periodoFin) {
+        const diasSemana = (ruta as any).diasSemana
+        if (fUnidad === 'semana' && diasSemana) {
+          // Exact weekday count
+          const dias = String(diasSemana).split(',').map(Number).filter((n: number) => n >= 0 && n <= 6)
+          const viajes = countDaysInPeriod(dias, periodoInicio, periodoFin)
+          kmPeriodo = dist * viajes
+        } else if (fUnidad === 'dia') {
+          kmPeriodo = dist * fVal * periodDays
+        } else if (fUnidad === 'mes') {
+          kmPeriodo = dist * fVal * (periodDays / 30.44)
+        } else { // semana sin diasSemana
+          kmPeriodo = dist * fVal * (periodDays / 7)
+        }
+      }
+
+      let consumoPeriodo: number | null = null
+      let costoPeriodo: number | null = null
+      let costoNetoPeriodo: number | null = null
+      if (kmPeriodo !== null && rendimientoEfectivo) {
+        const consumo = unidad === 'mpg'
+          ? (kmPeriodo / 1.60934) / rendimientoEfectivo
+          : kmPeriodo / rendimientoEfectivo
+        consumoPeriodo = +consumo.toFixed(2)
+        costoPeriodo = +(consumo * precioPorUnidad).toFixed(2)
+        costoNetoPeriodo = +(costoPeriodo * porcentaje).toFixed(2)
+      }
+
       return {
         id: ruta.id,
         nombre: ruta.nombre,
@@ -451,6 +507,11 @@ export class CombustibleService {
         costoTotal: +costoTotal.toFixed(2),
         costoNeto: +costoNeto.toFixed(2),
         precioCombustibleUsado: precioPorUnidad,
+        kmPeriodo: kmPeriodo !== null ? +kmPeriodo.toFixed(1) : null,
+        consumoPeriodo,
+        costoPeriodo,
+        costoNetoPeriodo,
+        diasSemana: (ruta as any).diasSemana ?? null,
       }
     })
 
@@ -460,8 +521,11 @@ export class CombustibleService {
         kmMensual: acc.kmMensual + r.kmMensual,
         costoTotal: acc.costoTotal + r.costoTotal,
         costoNeto: acc.costoNeto + r.costoNeto,
+        kmPeriodo: acc.kmPeriodo + (r.kmPeriodo ?? 0),
+        costoPeriodo: acc.costoPeriodo + (r.costoPeriodo ?? 0),
+        costoNetoPeriodo: acc.costoNetoPeriodo + (r.costoNetoPeriodo ?? 0),
       }),
-      { kmSemanal: 0, kmMensual: 0, costoTotal: 0, costoNeto: 0 }
+      { kmSemanal: 0, kmMensual: 0, costoTotal: 0, costoNeto: 0, kmPeriodo: 0, costoPeriodo: 0, costoNetoPeriodo: 0 }
     )
 
     return {
@@ -472,7 +536,13 @@ export class CombustibleService {
         kmMensual: +totales.kmMensual.toFixed(1),
         costoTotal: +totales.costoTotal.toFixed(2),
         costoNeto: +totales.costoNeto.toFixed(2),
+        kmPeriodo: +totales.kmPeriodo.toFixed(1),
+        costoPeriodo: +totales.costoPeriodo.toFixed(2),
+        costoNetoPeriodo: +totales.costoNetoPeriodo.toFixed(2),
       },
+      periodDays,
+      periodoInicio: periodoInicio ? periodoInicio.toISOString().split('T')[0] : null,
+      periodoFin: periodoFin ? periodoFin.toISOString().split('T')[0] : null,
     }
   }
 }

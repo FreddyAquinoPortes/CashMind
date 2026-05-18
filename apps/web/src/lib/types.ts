@@ -185,9 +185,11 @@ export interface Deuda {
   createdAt: string
 }
 
-export interface Ruta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; activa: boolean; vehiculoId: string | null; vehiculo: { id: string; marca: string; modelo: string; ano: number } | null; rendimientoManual: number | null; unidadRendimiento: string }
+export interface Ruta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; activa: boolean; vehiculoId: string | null; vehiculo: { id: string; marca: string; modelo: string; ano: number } | null; rendimientoManual: number | null; unidadRendimiento: string; diasSemana: string | null }
 
-export interface CalcRuta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; vehiculo: { marca: string; modelo: string; rendimientoEfectivo: number | null; unidad: string } | null; kmSemanal: number; kmMensual: number; consumoMes: number; unidadConsumo: string; costoTotal: number; costoNeto: number; precioCombustibleUsado: number }
+export interface CalcRuta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; vehiculo: { marca: string; modelo: string; rendimientoEfectivo: number | null; unidad: string } | null; kmSemanal: number; kmMensual: number; consumoMes: number; unidadConsumo: string; costoTotal: number; costoNeto: number; precioCombustibleUsado: number; kmPeriodo: number | null; consumoPeriodo: number | null; costoPeriodo: number | null; costoNetoPeriodo: number | null; diasSemana: string | null }
+
+export interface Calculo { preciosPorTipo: Record<string, number>; rutas: CalcRuta[]; totales: { kmSemanal: number; kmMensual: number; costoTotal: number; costoNeto: number; kmPeriodo: number; costoPeriodo: number; costoNetoPeriodo: number }; periodDays: number | null; periodoInicio: string | null; periodoFin: string | null }
 
 export interface VehiculoCatalogo {
   id: string

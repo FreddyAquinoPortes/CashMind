@@ -28,10 +28,10 @@ const ICON_B = new L.Icon({
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Rendimiento { id: string; tipoCombustible: string; rendimiento: number; unidad: string; margenConsumo: number; fuente: string | null }
 interface Vehiculo { id: string; marca: string; modelo: string; ano: number; mpgRealWorld: number; margenConsumo: number; fuenteMpg: string | null; activo: boolean; rendimientos?: Rendimiento[] }
-interface Ruta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; activa: boolean; vehiculoId: string | null; vehiculo: { id: string; marca: string; modelo: string; ano: number } | null; rendimientoManual: number | null; unidadRendimiento: string }
+interface Ruta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; diasSemana: string | null; tipoCombustible: string; porcentajePropio: number; activa: boolean; vehiculoId: string | null; vehiculo: { id: string; marca: string; modelo: string; ano: number } | null; rendimientoManual: number | null; unidadRendimiento: string }
 interface Precio { id: string; tipo: string; precio: number; moneda: string; fecha: string; fuente: string | null }
-interface CalcRuta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; vehiculo: { marca: string; modelo: string; rendimientoEfectivo: number | null; unidad: string } | null; kmSemanal: number; kmMensual: number; consumoMes: number; unidadConsumo: string; costoTotal: number; costoNeto: number; precioCombustibleUsado: number }
-interface Calculo { preciosPorTipo: Record<string, number>; rutas: CalcRuta[]; totales: { kmSemanal: number; kmMensual: number; costoTotal: number; costoNeto: number } }
+interface CalcRuta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; diasSemana: string | null; tipoCombustible: string; porcentajePropio: number; vehiculo: { marca: string; modelo: string; rendimientoEfectivo: number | null; unidad: string } | null; kmSemanal: number; kmMensual: number; consumoMes: number; unidadConsumo: string; costoTotal: number; costoNeto: number; precioCombustibleUsado: number; kmPeriodo: number | null; consumoPeriodo: number | null; costoPeriodo: number | null; costoNetoPeriodo: number | null }
+interface Calculo { preciosPorTipo: Record<string, number>; rutas: CalcRuta[]; totales: { kmSemanal: number; kmMensual: number; costoTotal: number; costoNeto: number; kmPeriodo: number; costoPeriodo: number; costoNetoPeriodo: number }; periodDays: number | null; periodoInicio: string | null; periodoFin: string | null }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const FmtCtx = createContext<(n: number, isTotal?: boolean) => string>(() => '')
@@ -441,13 +441,14 @@ function VehiculoForm({ initial, onSubmit, loading, onClose }: { initial?: VForm
 interface RForm {
   vehiculoId: string; nombre: string; distanciaKm: string
   frecuenciaValor: string; frecuenciaUnidad: 'dia' | 'semana' | 'mes'
+  diasSemana: string  // comma-separated day numbers 0-6 when frecuenciaUnidad=semana
   tipoCombustible: string; porcentajePropio: string
   rendimientoManual: string; unidadRendimiento: 'mpg' | 'km_l' | 'km_m3'
   crearEvento: boolean; eventoFechaInicio: string; eventoPerpetuo: boolean; eventoFechaFin: string
 }
 const EMPTY_R: RForm = {
   vehiculoId: '', nombre: '', distanciaKm: '',
-  frecuenciaValor: '5', frecuenciaUnidad: 'semana',
+  frecuenciaValor: '5', frecuenciaUnidad: 'semana', diasSemana: '',
   tipoCombustible: 'Gasolina Regular', porcentajePropio: '100',
   rendimientoManual: '', unidadRendimiento: 'mpg',
   crearEvento: false, eventoFechaInicio: '', eventoPerpetuo: true, eventoFechaFin: '',
@@ -597,7 +598,7 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
         <div className="flex flex-col gap-1 text-sm text-text-secondary">
           Unidad
           <select value={f.frecuenciaUnidad}
-            onChange={e => setF(p => ({ ...p, frecuenciaUnidad: e.target.value as RForm['frecuenciaUnidad'] }))}
+            onChange={e => setF(p => ({ ...p, frecuenciaUnidad: e.target.value as RForm['frecuenciaUnidad'], diasSemana: '' }))}
             className="input">
             <option value="dia">× por día</option>
             <option value="semana">× por semana</option>
@@ -605,6 +606,35 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
           </select>
         </div>
       </div>
+
+      {/* ── Días de la semana (solo cuando frecuencia = por semana) ── */}
+      {f.frecuenciaUnidad === 'semana' && (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm text-text-secondary">Días de la semana <span className="text-text-muted font-normal">(opcional — para cálculo exacto de períodos)</span></span>
+          <div className="flex gap-1.5">
+            {([{d:1,l:'L'},{d:2,l:'M'},{d:3,l:'X'},{d:4,l:'J'},{d:5,l:'V'},{d:6,l:'S'},{d:0,l:'D'}] as const).map(({ d, l }) => {
+              const sel = f.diasSemana.split(',').filter(Boolean).includes(String(d))
+              return (
+                <button key={d} type="button"
+                  onClick={() => {
+                    const dias = f.diasSemana.split(',').filter(Boolean)
+                    const next = sel ? dias.filter(x => x !== String(d)) : [...dias, String(d)]
+                    next.sort()
+                    setF(p => ({ ...p, diasSemana: next.join(','), frecuenciaValor: String(next.length || p.frecuenciaValor) }))
+                  }}
+                  className={`w-9 h-9 rounded-lg text-sm font-bold border transition-colors select-none
+                    ${sel ? 'bg-primary text-white border-primary' : 'border-border text-text-muted hover:border-primary/60 hover:text-primary'}`}>
+                  {l}
+                </button>
+              )
+            })}
+          </div>
+          {f.diasSemana
+            ? <p className="text-xs text-primary">{f.diasSemana.split(',').filter(Boolean).length} días/semana · El cálculo de período usará ocurrencias exactas</p>
+            : <p className="text-xs text-text-muted">Sin selección → usa el número de frecuencia como promedio semanal</p>
+          }
+        </div>
+      )}
 
       {!f.vehiculoId && (
         <div className="grid grid-cols-2 gap-3">
@@ -712,9 +742,36 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
 // ── Tab: Resumen ───────────────────────────────────────────────────────────
 function TabResumen({ cid }: { cid: string }) {
   const fmt = useFmt()
+  const today = new Date()
+
+  // ── period helpers ──
+  const getWeekRange = () => {
+    const d = new Date(today)
+    const dow = d.getDay() === 0 ? 7 : d.getDay() // Mon=1..Sun=7
+    const mon = new Date(d); mon.setDate(d.getDate() - dow + 1)
+    const sun = new Date(d); sun.setDate(d.getDate() - dow + 7)
+    return { inicio: mon.toISOString().split('T')[0]!, fin: sun.toISOString().split('T')[0]! }
+  }
+  const getMonthRange = () => {
+    const y = today.getFullYear(); const m = today.getMonth()
+    return {
+      inicio: new Date(y, m, 1).toISOString().split('T')[0]!,
+      fin:    new Date(y, m + 1, 0).toISOString().split('T')[0]!,
+    }
+  }
+
+  const [periodo, setPeriodo] = useState<'semana' | 'mes' | 'custom'>('mes')
+  const [custom, setCustom] = useState(() => getMonthRange())
+
+  const range = periodo === 'semana' ? getWeekRange()
+    : periodo === 'mes' ? getMonthRange()
+    : custom
+
   const { data: calculo, isLoading } = useQuery<Calculo>({
-    queryKey: ['combustible-calculo', cid],
-    queryFn: async () => (await api.get(`/clientes/${cid}/combustible/calculo`)).data.data,
+    queryKey: ['combustible-calculo', cid, range.inicio, range.fin],
+    queryFn: async () => (await api.get(`/clientes/${cid}/combustible/calculo`, {
+      params: { inicio: range.inicio, fin: range.fin },
+    })).data.data,
     enabled: !!cid,
   })
 
@@ -722,7 +779,21 @@ function TabResumen({ cid }: { cid: string }) {
   if (!calculo) return null
 
   const { totales, rutas, preciosPorTipo } = calculo
-  const kpis = [
+  const hasPeriod = (calculo as any).periodDays != null
+  const periodDays: number = (calculo as any).periodDays ?? 0
+
+  const periodLabel = periodo === 'semana' ? 'Esta semana'
+    : periodo === 'mes'
+      ? new Date(range.inicio + 'T12:00').toLocaleString('es-DO', { month: 'long', year: 'numeric' })
+      : `${range.inicio} → ${range.fin}`
+
+  // KPI cards: show period values if available, otherwise monthly
+  const kpis = hasPeriod ? [
+    { label: `km · ${periodLabel}`,    value: fmtDec((totales as any).kmPeriodo ?? 0, 0),          unit: 'km', color: 'text-primary' },
+    { label: 'km / mes (prom.)',        value: fmtDec(totales.kmMensual, 0),                         unit: 'km', color: 'text-primary' },
+    { label: `Costo · ${periodDays}d`, value: fmt((totales as any).costoPeriodo ?? 0),               unit: '',   color: 'text-danger'  },
+    { label: 'Costo neto tuyo',         value: fmt((totales as any).costoNetoPeriodo ?? 0),          unit: '',   color: 'text-success' },
+  ] : [
     { label: 'km / semana',    value: fmtDec(totales.kmSemanal, 0), unit: 'km', color: 'text-primary' },
     { label: 'km / mes',       value: fmtDec(totales.kmMensual, 0), unit: 'km', color: 'text-primary' },
     { label: 'Costo total',    value: fmt(totales.costoTotal),       unit: '',   color: 'text-danger'  },
@@ -731,6 +802,35 @@ function TabResumen({ cid }: { cid: string }) {
 
   return (
     <div className="flex flex-col gap-5">
+
+      {/* ── Selector de período ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(['semana', 'mes', 'custom'] as const).map(p => (
+          <button key={p} type="button" onClick={() => setPeriodo(p)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors
+              ${periodo === p ? 'bg-primary text-white border-primary' : 'border-border text-text-secondary hover:border-primary/50'}`}>
+            {p === 'semana' ? '📅 Semana' : p === 'mes' ? '📆 Mes' : '🗓️ Personalizado'}
+          </button>
+        ))}
+        {periodo === 'custom' && (
+          <div className="flex items-center gap-2 ml-1">
+            <input type="date" value={custom.inicio}
+              onChange={e => setCustom(p => ({ ...p, inicio: e.target.value }))}
+              className="input text-sm py-1 px-2" style={{ height: 'auto' }} />
+            <span className="text-text-muted text-sm">→</span>
+            <input type="date" value={custom.fin}
+              onChange={e => setCustom(p => ({ ...p, fin: e.target.value }))}
+              className="input text-sm py-1 px-2" style={{ height: 'auto' }} />
+          </div>
+        )}
+      </div>
+      {hasPeriod && (
+        <p className="text-xs text-text-muted -mt-3">
+          📊 <strong className="text-text-secondary">{periodLabel}</strong> · {periodDays} días
+          {rutas.some(r => (r as any).diasSemana) && <span className="text-primary"> · Rutas con días exactos activas</span>}
+        </p>
+      )}
+
       {/* Precios de combustible usados */}
       {Object.keys(preciosPorTipo).length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -759,8 +859,9 @@ function TabResumen({ cid }: { cid: string }) {
 
       {rutas.length > 0 && (
         <div className="bg-surface border border-border rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-border">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <h3 className="text-sm font-semibold text-text-primary">Desglose por ruta</h3>
+            {hasPeriod && <span className="text-xs text-text-muted">{periodLabel}</span>}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -768,19 +869,27 @@ function TabResumen({ cid }: { cid: string }) {
                 <tr className="border-b border-border text-xs text-text-muted uppercase tracking-wider">
                   <th className="px-4 py-2 text-left">Ruta</th>
                   <th className="px-4 py-2 text-left">Combustible</th>
-                  <th className="px-4 py-2 text-right">km/mes</th>
+                  <th className="px-4 py-2 text-right">{hasPeriod ? 'km período' : 'km/mes'}</th>
                   <th className="px-4 py-2 text-right">Consumo</th>
-                  <th className="px-4 py-2 text-right">Costo total</th>
+                  <th className="px-4 py-2 text-right">{hasPeriod ? 'Costo período' : 'Costo total'}</th>
                   <th className="px-4 py-2 text-right">Costo neto</th>
                 </tr>
               </thead>
               <tbody>
                 {rutas.map((r, i) => {
                   const cfg = TIPOS_CONFIG[r.tipoCombustible] ?? { emoji: '⛽', color: 'text-text-primary' }
+                  const kmShow     = hasPeriod ? ((r as any).kmPeriodo      ?? r.kmMensual) : r.kmMensual
+                  const costoShow  = hasPeriod ? ((r as any).costoPeriodo   ?? r.costoTotal): r.costoTotal
+                  const netoShow   = hasPeriod ? ((r as any).costoNetoPeriodo ?? r.costoNeto): r.costoNeto
+                  const consumoShow= hasPeriod ? ((r as any).consumoPeriodo ?? r.consumoMes): r.consumoMes
+                  const hasExact   = hasPeriod && (r as any).diasSemana
                   return (
                     <tr key={r.id} className={i % 2 === 0 ? '' : 'bg-surface-elevated/40'}>
                       <td className="px-4 py-3">
-                        <p className="font-medium text-text-primary">{r.nombre}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-text-primary">{r.nombre}</p>
+                          {hasExact && <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">exacto</span>}
+                        </div>
                         {r.vehiculo && (
                           <p className="text-xs text-text-muted">
                             {r.vehiculo.marca} {r.vehiculo.modelo}
@@ -796,10 +905,10 @@ function TabResumen({ cid }: { cid: string }) {
                         </span>
                         <p className="text-xs text-text-muted mt-0.5">DOP {fmtDec(r.precioCombustibleUsado, 2)}/{r.unidadConsumo}</p>
                       </td>
-                      <td className="px-4 py-3 text-right text-text-secondary">{fmtDec(r.kmMensual, 0)}</td>
-                      <td className="px-4 py-3 text-right text-text-secondary">{fmtDec(r.consumoMes, 2)} {r.unidadConsumo}</td>
-                      <td className="px-4 py-3 text-right text-danger font-medium">{fmt(r.costoTotal)}</td>
-                      <td className="px-4 py-3 text-right text-success font-medium">{fmt(r.costoNeto)}</td>
+                      <td className="px-4 py-3 text-right text-text-secondary">{fmtDec(kmShow, 0)}</td>
+                      <td className="px-4 py-3 text-right text-text-secondary">{fmtDec(consumoShow, 2)} {r.unidadConsumo}</td>
+                      <td className="px-4 py-3 text-right text-danger font-medium">{fmt(costoShow)}</td>
+                      <td className="px-4 py-3 text-right text-success font-medium">{fmt(netoShow)}</td>
                     </tr>
                   )
                 })}
@@ -892,6 +1001,7 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
     distanciaKm: Number(f.distanciaKm),
     frecuenciaValor: Number(f.frecuenciaValor),
     frecuenciaUnidad: f.frecuenciaUnidad,
+    diasSemana: (f.frecuenciaUnidad === 'semana' && f.diasSemana) ? f.diasSemana : null,
     tipoCombustible: f.tipoCombustible,
     porcentajePropio: Number(f.porcentajePropio),
     vehiculoId: f.vehiculoId || undefined,
@@ -991,6 +1101,7 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
               porcentajePropio: String(modal.ruta.porcentajePropio),
               rendimientoManual: (modal.ruta as any).rendimientoManual ? String((modal.ruta as any).rendimientoManual) : '',
               unidadRendimiento: ((modal.ruta as any).unidadRendimiento ?? 'mpg') as 'mpg' | 'km_l' | 'km_m3',
+              diasSemana: modal.ruta.diasSemana ?? '',
               crearEvento: false, eventoFechaInicio: '', eventoPerpetuo: true, eventoFechaFin: '',
             }}
             onSubmit={f => update.mutate({ id: modal.ruta.id, d: toPayload(f), f })} />

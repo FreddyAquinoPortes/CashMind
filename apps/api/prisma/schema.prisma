@@ -538,6 +538,7 @@ model Ruta {
   distanciaKm      Decimal   @db.Decimal(8, 2)
   frecuenciaValor   Int     @default(5)
   frecuenciaUnidad  String  @default("semana")  // 'dia' | 'semana' | 'mes'
+  diasSemana        String?  // comma-separated day numbers 0-6
   rendimientoManual Decimal? @db.Decimal(8, 2)
   unidadRendimiento String   @default("mpg")   // 'mpg' | 'km_l' | 'km_m3'
   tipoCombustible  String    @default("Regular")
