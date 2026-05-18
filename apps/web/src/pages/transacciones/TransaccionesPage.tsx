@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
@@ -156,6 +156,127 @@ const EMPTY_FORM: TxFormState = {
 const fmtCOP = (n: string | number) =>
   new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2 })
     .format(parseFloat(String(n)))
+
+// ── CategoriaSelect ────────────────────────────────────────────────────────
+// Custom dropdown that renders category icons + colors and groups system vs user
+function CategoriaSelect({
+  value, onChange, categorias,
+}: {
+  value: string
+  onChange: (id: string) => void
+  categorias: Categoria[]
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false); setSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selected = categorias.find(c => c.id === value)
+  const filtered = search
+    ? categorias.filter(c => c.nombre.toLowerCase().includes(search.toLowerCase()))
+    : categorias
+  const sistema = filtered.filter(c => c.clienteId === null)
+  const propias  = filtered.filter(c => c.clienteId !== null)
+
+  const CatIcon = ({ c, size = 'w-4 h-4' }: { c: Categoria; size?: string }) =>
+    c.icono ? (
+      <Icon icon={c.icono} className={size} style={c.color ? { color: c.color } : {}} />
+    ) : (
+      <span className={`${size} rounded-full flex-shrink-0 inline-block`}
+        style={{ backgroundColor: c.color ?? '#6b7280' }} />
+    )
+
+  const CatRow = ({ c }: { c: Categoria }) => (
+    <button type="button"
+      onClick={() => { onChange(c.id); setOpen(false); setSearch('') }}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors
+        ${value === c.id ? 'bg-primary/10 text-primary' : 'text-text-primary hover:bg-surface-elevated'}`}>
+      <span className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+        <CatIcon c={c} size="w-4 h-4" />
+      </span>
+      <span className="flex-1 truncate text-left">{c.nombre}</span>
+      {value === c.id && <span className="text-primary text-xs font-bold">✓</span>}
+    </button>
+  )
+
+  return (
+    <div ref={ref} className="relative">
+      {/* Trigger */}
+      <button type="button" onClick={() => setOpen(p => !p)}
+        className="input w-full flex items-center gap-2 text-left min-h-[2.25rem]">
+        {selected ? (
+          <>
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+              <CatIcon c={selected} />
+            </span>
+            <span className="flex-1 truncate text-sm">{selected.nombre}</span>
+          </>
+        ) : (
+          <span className="flex-1 text-sm text-text-muted">— Sin categoría —</span>
+        )}
+        <svg className={`w-3.5 h-3.5 text-text-muted flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-[200] top-full mt-1 w-full min-w-[220px] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden">
+          {/* Search */}
+          <div className="p-2 border-b border-border/50">
+            <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar categoría…"
+              className="w-full px-2.5 py-1.5 text-sm bg-surface-elevated rounded-lg outline-none
+                border border-border/40 focus:border-primary/50 text-text-primary placeholder:text-text-muted" />
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {/* Clear */}
+            <button type="button"
+              onClick={() => { onChange(''); setOpen(false); setSearch('') }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-muted hover:bg-surface-elevated transition-colors">
+              <span className="w-5 h-5" />
+              — Sin categoría —
+            </button>
+
+            {/* System categories */}
+            {sistema.length > 0 && (
+              <>
+                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-text-muted uppercase tracking-wider border-t border-border/40">
+                  Sistema
+                </div>
+                {sistema.map(c => <CatRow key={c.id} c={c} />)}
+              </>
+            )}
+
+            {/* User categories */}
+            {propias.length > 0 && (
+              <>
+                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-text-muted uppercase tracking-wider border-t border-border/40">
+                  Mis categorías
+                </div>
+                {propias.map(c => <CatRow key={c.id} c={c} />)}
+              </>
+            )}
+
+            {filtered.length === 0 && (
+              <p className="text-center text-text-muted text-sm py-4">Sin resultados para "{search}"</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function TransaccionForm({
   initial,
@@ -452,16 +573,15 @@ function TransaccionForm({
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        {/* Categoría */}
-        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+        {/* Categoría – custom dropdown with icons + colors + groups */}
+        <div className="flex flex-col gap-1 text-sm text-text-secondary">
           Categoría
-          <select value={form.categoriaId} onChange={handleCatChange} className="input">
-            <option value="">— Sin categoría —</option>
-            {categorias.map(c => (
-              <option key={c.id} value={c.id}>{c.icono ? `${c.icono} ` : ''}{c.nombre}</option>
-            ))}
-          </select>
-        </label>
+          <CategoriaSelect
+            value={form.categoriaId}
+            onChange={id => setForm(p => ({ ...p, categoriaId: id, subcategoriaId: '' }))}
+            categorias={categorias}
+          />
+        </div>
 
         {/* Subcategoría inline when available */}
         {form.categoriaId && subcats.length > 0 && (
