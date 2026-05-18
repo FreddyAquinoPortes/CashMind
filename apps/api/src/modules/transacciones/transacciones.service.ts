@@ -86,15 +86,26 @@ export class TransaccionesService {
         pagadoPorId: data.pagadoPorId ?? null,
       },
     })
-    if (data.cuentaId) {
+    // Update bank account balance
+    if (data.cuentaId && (data.tipo === 'GASTO' || data.tipo === 'INGRESO')) {
       const delta = data.tipo === 'INGRESO' ? Number(data.monto) : -Number(data.monto)
-      if (data.tipo === 'GASTO' || data.tipo === 'INGRESO') {
-        await prisma.cuentaBancaria.update({
-          where: { id: data.cuentaId },
-          data: { saldo: { increment: delta } },
-        })
-      }
+      await prisma.cuentaBancaria.update({
+        where: { id: data.cuentaId },
+        data: { saldo: { increment: delta } },
+      })
     }
+
+    // Update credit card balance
+    // GASTO on card → more debt (saldoActual increases)
+    // INGRESO on card → payment/credit received (saldoActual decreases)
+    if (data.tarjetaId && (data.tipo === 'GASTO' || data.tipo === 'INGRESO')) {
+      const delta = data.tipo === 'GASTO' ? Number(data.monto) : -Number(data.monto)
+      await prisma.tarjetaCredito.update({
+        where: { id: data.tarjetaId },
+        data: { saldoActual: { increment: delta } },
+      })
+    }
+
     return tx
   }
 
@@ -149,18 +160,25 @@ export class TransaccionesService {
     }
 
     await prisma.$transaction(async trx => {
-      // Revert account balance change caused by this transaction
+      // Revert bank account balance
       if (tx.cuentaId && (tx.tipo === 'GASTO' || tx.tipo === 'INGRESO')) {
-        // create() applied: INGRESO → +monto, GASTO → -monto. Reverse it.
         const revertDelta = tx.tipo === 'INGRESO' ? -Number(tx.monto) : Number(tx.monto)
         await trx.cuentaBancaria.update({
           where: { id: tx.cuentaId },
           data: { saldo: { increment: revertDelta } },
         })
       }
+      // Revert credit card balance
+      if (tx.tarjetaId && (tx.tipo === 'GASTO' || tx.tipo === 'INGRESO')) {
+        const revertDelta = tx.tipo === 'GASTO' ? -Number(tx.monto) : Number(tx.monto)
+        await trx.tarjetaCredito.update({
+          where: { id: tx.tarjetaId },
+          data: { saldoActual: { increment: revertDelta } },
+        })
+      }
       await trx.transaccion.delete({ where: { id } })
     })
 
-    return { ok: true, reverted: !!(tx.cuentaId && (tx.tipo === 'GASTO' || tx.tipo === 'INGRESO')) }
+    return { ok: true, reverted: !!(tx.cuentaId || tx.tarjetaId) }
   }
 }

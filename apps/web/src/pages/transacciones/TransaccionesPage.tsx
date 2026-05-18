@@ -8,6 +8,7 @@ import type {
   EstadoTransaccion,
   Categoria,
   CuentaBancaria,
+  TarjetaCredito,
   Persona,
   Deuda,
   PaginatedResponse,
@@ -127,6 +128,7 @@ interface TxFormState {
   tipo: TipoTransaccion
   estado: EstadoTransaccion
   cuentaId: string
+  tarjetaId: string
   categoriaId: string
   subcategoriaId: string
   notas: string
@@ -142,6 +144,7 @@ const EMPTY_FORM: TxFormState = {
   tipo: 'GASTO',
   estado: 'EJECUTADO',
   cuentaId: '',
+  tarjetaId: '',
   categoriaId: '',
   subcategoriaId: '',
   notas: '',
@@ -156,6 +159,7 @@ const fmtCOP = (n: string | number) =>
 function TransaccionForm({
   initial,
   cuentas,
+  tarjetas,
   categorias,
   personas,
   deudas,
@@ -165,6 +169,7 @@ function TransaccionForm({
 }: {
   initial?: Partial<TxFormState>
   cuentas: CuentaBancaria[]
+  tarjetas: TarjetaCredito[]
   categorias: Categoria[]
   personas: Persona[]
   deudas: Deuda[]
@@ -177,6 +182,13 @@ function TransaccionForm({
   const set = (key: keyof TxFormState) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(p => ({ ...p, [key]: e.target.value }))
+
+  // Selecting a cuenta clears tarjeta and vice versa (mutually exclusive)
+  const handleCuentaChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    setForm(p => ({ ...p, cuentaId: e.target.value, tarjetaId: '' }))
+
+  const handleTarjetaChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    setForm(p => ({ ...p, tarjetaId: e.target.value, cuentaId: '' }))
 
   // When persona changes, clear deuda selection
   const handlePersonaChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
@@ -326,18 +338,45 @@ function TransaccionForm({
         </label>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        {/* Cuenta */}
-        <label className="flex flex-col gap-1 text-sm text-text-secondary">
-          Cuenta
-          <select value={form.cuentaId} onChange={set('cuentaId')} className="input">
-            <option value="">— Sin cuenta —</option>
-            {cuentas.map(c => (
-              <option key={c.id} value={c.id}>{c.alias ?? c.banco}</option>
-            ))}
-          </select>
-        </label>
+      {/* Cuenta / Tarjeta — mutually exclusive */}
+      <div className="flex flex-col gap-1 text-sm text-text-secondary">
+        <span className="font-medium">Origen del movimiento</span>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-text-muted">Cuenta bancaria</span>
+            <select
+              value={form.cuentaId}
+              onChange={handleCuentaChange}
+              className={`input ${form.cuentaId ? 'border-primary/50' : ''}`}
+            >
+              <option value="">— Sin cuenta —</option>
+              {cuentas.map(c => (
+                <option key={c.id} value={c.id}>{c.alias ?? c.banco}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-text-muted">Tarjeta de crédito</span>
+            <select
+              value={form.tarjetaId}
+              onChange={handleTarjetaChange}
+              className={`input ${form.tarjetaId ? 'border-primary/50' : ''}`}
+            >
+              <option value="">— Sin tarjeta —</option>
+              {tarjetas.filter(t => t.activa).map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.alias ?? t.banco} ···{t.ultimosCuatro}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {form.cuentaId && form.tarjetaId === '' && (
+          <p className="text-xs text-text-muted">Selecciona tarjeta para limpiar la cuenta, o viceversa.</p>
+        )}
+      </div>
 
+      <div className="grid grid-cols-2 gap-4">
         {/* Categoría */}
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Categoría
@@ -348,18 +387,18 @@ function TransaccionForm({
             ))}
           </select>
         </label>
-      </div>
 
-      {/* Subcategoría */}
-      {form.categoriaId && subcats.length > 0 && (
-        <label className="flex flex-col gap-1 text-sm text-text-secondary">
-          Subcategoría
-          <select value={form.subcategoriaId} onChange={set('subcategoriaId')} className="input">
-            <option value="">— Sin subcategoría —</option>
-            {subcats.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-          </select>
-        </label>
-      )}
+        {/* Subcategoría inline when available */}
+        {form.categoriaId && subcats.length > 0 && (
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Subcategoría
+            <select value={form.subcategoriaId} onChange={set('subcategoriaId')} className="input">
+              <option value="">— Sin subcategoría —</option>
+              {subcats.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
 
       {/* Notas */}
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
@@ -452,6 +491,12 @@ export function TransaccionesPage() {
     enabled: !!cid,
   })
 
+  const { data: tarjetas = [] } = useQuery<TarjetaCredito[]>({
+    queryKey: ['tarjetas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/tarjetas`)).data.data,
+    enabled: !!cid,
+  })
+
   const { data: categorias = [] } = useQuery<Categoria[]>({
     queryKey: ['categorias'],
     queryFn: async () => (await api.get('/categorias')).data.data,
@@ -483,8 +528,9 @@ export function TransaccionesPage() {
       ...rest,
       monto: parseFloat(f.monto),
       fecha: f.fecha ? new Date(f.fecha + 'T00:00:00').toISOString() : new Date().toISOString(),
-      cuentaId:      f.cuentaId      || null,
-      categoriaId:   f.categoriaId   || null,
+      cuentaId:       f.cuentaId       || null,
+      tarjetaId:      f.tarjetaId      || null,
+      categoriaId:    f.categoriaId    || null,
       subcategoriaId: f.subcategoriaId || null,
       frecuencia: 'UNICA',
       // Only send deudaId when tipo=PAGO_DEUDA and a deuda is selected
@@ -823,6 +869,7 @@ export function TransaccionesPage() {
         <Modal title="Nueva transacción" onClose={() => setModal(null)} wide>
           <TransaccionForm
             cuentas={cuentas}
+            tarjetas={tarjetas}
             categorias={categorias}
             personas={personas}
             deudas={deudas}
@@ -844,6 +891,7 @@ export function TransaccionesPage() {
               tipo: modal.tx.tipo,
               estado: modal.tx.estado,
               cuentaId: modal.tx.cuentaId ?? '',
+              tarjetaId: modal.tx.tarjetaId ?? '',
               categoriaId: modal.tx.categoriaId ?? '',
               subcategoriaId: modal.tx.subcategoriaId ?? '',
               notas: modal.tx.notas ?? '',
@@ -851,6 +899,7 @@ export function TransaccionesPage() {
               deudaId: '',
             }}
             cuentas={cuentas}
+            tarjetas={tarjetas}
             categorias={categorias}
             personas={personas}
             deudas={deudas}
