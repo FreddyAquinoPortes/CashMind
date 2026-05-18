@@ -187,13 +187,32 @@ function CategoriaSelect({
   const sistema = filtered.filter(c => c.clienteId === null)
   const propias  = filtered.filter(c => c.clienteId !== null)
 
-  const CatIcon = ({ c, size = 'w-4 h-4' }: { c: Categoria; size?: string }) =>
-    c.icono ? (
-      <Icon icon={c.icono} className={size} style={c.color ? { color: c.color } : {}} />
+  // Normalize legacy icon names that don't have a prefix (old DB data)
+  const normalizeIcon = (icon: string | null): string | null => {
+    if (!icon) return null
+    if (icon.includes(':')) return icon  // already prefixed (tabler:x, heroicons:x, etc.)
+    // Map common plain names → tabler equivalents
+    const map: Record<string, string> = {
+      'home': 'tabler:home', 'shopping-cart': 'tabler:shopping-cart',
+      'car': 'tabler:car', 'credit-card': 'tabler:credit-card',
+      'book': 'tabler:school', 'users': 'tabler:users', 'user': 'tabler:user',
+      'monitor': 'tabler:device-laptop', 'trending-up': 'tabler:trending-up',
+      'alert-triangle': 'tabler:alert-triangle', 'receipt': 'tabler:receipt-tax',
+      'arrows-exchange': 'tabler:arrows-exchange', 'stethoscope': 'tabler:stethoscope',
+      'gamepad': 'tabler:device-gamepad-2', 'plug': 'tabler:plug',
+    }
+    return map[icon] ?? `tabler:${icon}`
+  }
+
+  const CatIcon = ({ c, size = 'w-4 h-4' }: { c: Categoria; size?: string }) => {
+    const icon = normalizeIcon(c.icono)
+    return icon ? (
+      <Icon icon={icon} className={size} style={c.color ? { color: c.color } : {}} />
     ) : (
       <span className={`${size} rounded-full flex-shrink-0 inline-block`}
         style={{ backgroundColor: c.color ?? '#6b7280' }} />
     )
+  }
 
   const CatRow = ({ c }: { c: Categoria }) => (
     <button type="button"
@@ -693,8 +712,9 @@ export function TransaccionesPage() {
   })
 
   const { data: categorias = [] } = useQuery<Categoria[]>({
-    queryKey: ['categorias'],
-    queryFn: async () => (await api.get('/categorias')).data.data,
+    queryKey: ['categorias', cid],
+    queryFn: async () => (await api.get(`/categorias${cid ? `?clienteId=${cid}` : ''}`)).data.data,
+    enabled: !!cid,
   })
 
   const { data: personas = [] } = useQuery<Persona[]>({
