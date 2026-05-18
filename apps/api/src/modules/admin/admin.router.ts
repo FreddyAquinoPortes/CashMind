@@ -33,35 +33,64 @@ adminRouter.post('/admin/rollback-last-balance', async (req: Request, res: Respo
   const clienteId = usuario.clientes[0].id
 
   // Find the last transaction that changed an account balance
-  // Diagnostic: show all accounts and last 5 transactions regardless of type
-  const cuentas = await prisma.cuentaBancaria.findMany({
-    where: { clienteId },
-    select: { id: true, alias: true, banco: true, saldo: true, tipo: true },
-  })
+  const { cuentaId, monto: montoStr, modo } = req.body as {
+    cuentaId?: string
+    monto?: string | number
+    modo?: 'info' | 'ajustar'
+  }
 
-  const lastTxs = await prisma.transaccion.findMany({
-    where: { clienteId },
-    orderBy: { createdAt: 'desc' },
-    take: 10,
-    select: { id: true, concepto: true, tipo: true, monto: true, cuentaId: true, tarjetaId: true, createdAt: true, estado: true },
-  })
+  // ── INFO mode: show accounts + last transactions ──────────────────────────
+  if (!modo || modo === 'info') {
+    const cuentas = await prisma.cuentaBancaria.findMany({
+      where: { clienteId },
+      select: { id: true, alias: true, banco: true, saldo: true, tipo: true },
+    })
+    const lastTxs = await prisma.transaccion.findMany({
+      where: { clienteId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { id: true, concepto: true, tipo: true, monto: true, cuentaId: true, createdAt: true },
+    })
+    res.json({ clienteId, cuentas, ultimasTransacciones: lastTxs })
+    return
+  }
 
-  const lastPagosEC = await prisma.pagoExtraCredito.findMany({
-    orderBy: { fecha: 'desc' },
-    take: 5,
-    include: { extraCredito: { include: { tarjeta: { select: { clienteId: true, alias: true } } } }, cuenta: { select: { alias: true, saldo: true } } },
-  }).then(rows => rows.filter(r => r.extraCredito?.tarjeta?.clienteId === clienteId))
+  // ── AJUSTAR mode: subtract monto from the specified account ──────────────
+  if (!cuentaId || !montoStr) {
+    res.status(400).json({ error: 'cuentaId y monto son requeridos para modo=ajustar' })
+    return
+  }
+
+  const monto = Number(montoStr)
+  if (isNaN(monto) || monto <= 0) {
+    res.status(400).json({ error: 'monto debe ser un número positivo' })
+    return
+  }
+
+  // Verify the account belongs to this client
+  const cuenta = await prisma.cuentaBancaria.findFirst({
+    where: { id: cuentaId, clienteId },
+  })
+  if (!cuenta) {
+    res.status(404).json({ error: 'Cuenta no encontrada para este cliente' })
+    return
+  }
+
+  const saldoAntes = Number(cuenta.saldo)
+  const cuentaUpdated = await prisma.cuentaBancaria.update({
+    where: { id: cuentaId },
+    data: { saldo: { decrement: monto } },
+  })
 
   res.json({
-    clienteId,
-    cuentas,
-    ultimasTransacciones: lastTxs,
-    ultimosPagosExtraCredito: lastPagosEC.map(p => ({
-      id: p.id,
-      monto: p.monto,
-      fecha: p.fecha,
-      cuenta: p.cuenta,
-      extraCredito: p.extraCredito?.descripcion,
-    })),
+    ok: true,
+    cuenta: {
+      id: cuentaId,
+      alias: cuenta.alias ?? cuenta.banco,
+      saldoAntes,
+      montoDescontado: monto,
+      saldoDespues: Number(cuentaUpdated.saldo),
+    },
+    nota: 'Saldo ajustado directamente. El evento nómina ya no existe.',
   })
 })
