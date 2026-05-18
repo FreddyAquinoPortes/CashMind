@@ -39,7 +39,37 @@ export class TransaccionesService {
         skip: f.offset,
       }),
     ])
-    return { total, items, limit: f.limit, offset: f.offset }
+
+    // Fetch categories for transactions that have categoriaId but no subcategoria
+    const catIds = items
+      .filter((tx: any) => tx.categoriaId && !tx.subcategoria?.categoria)
+      .map((tx: any) => tx.categoriaId as string)
+    const catsById: Record<string, any> = {}
+    if (catIds.length > 0) {
+      const cats = await prisma.categoria.findMany({
+        where: { id: { in: [...new Set(catIds)] } },
+        select: { id: true, nombre: true, color: true, icono: true },
+      })
+      for (const c of cats) catsById[c.id] = c
+    }
+
+    // Map subcategoria.categoria → top-level categoria for the frontend
+    const mapped = items.map((tx: any) => {
+      const categoria = tx.subcategoria?.categoria ?? (tx.categoriaId ? catsById[tx.categoriaId] : null) ?? null
+      const { subcategoria, cuenta, ...rest } = tx
+      return {
+        ...rest,
+        categoria: categoria
+          ? { id: categoria.id, nombre: categoria.nombre, color: categoria.color, icono: categoria.icono }
+          : null,
+        subcategoria: subcategoria
+          ? { id: subcategoria.id, nombre: subcategoria.nombre, color: subcategoria.color }
+          : null,
+        cuentaBancaria: cuenta ?? null,
+      }
+    })
+
+    return { total, items: mapped, limit: f.limit, offset: f.offset }
   }
 
   async create(clienteId: string, body: unknown) {

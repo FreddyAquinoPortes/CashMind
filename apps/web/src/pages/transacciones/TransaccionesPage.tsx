@@ -21,6 +21,7 @@ import {
   ChevronRightIcon,
   FunnelIcon,
 } from '@heroicons/react/24/outline'
+import { Icon } from '@iconify/react'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PAGE_SIZE = 50
@@ -473,7 +474,7 @@ export function TransaccionesPage() {
       const params = new URLSearchParams()
       params.set('limit', String(PAGE_SIZE))
       params.set('offset', String(page * PAGE_SIZE))
-      if (filters.search) params.set('concepto', filters.search)
+      if (filters.search) params.set('q', filters.search)
       if (filters.desde) params.set('desde', filters.desde)
       if (filters.hasta) params.set('hasta', filters.hasta)
       if (filters.tipo) params.set('tipo', filters.tipo)
@@ -761,8 +762,14 @@ export function TransaccionesPage() {
                           className="w-2 h-2 rounded-full flex-shrink-0"
                           style={{ backgroundColor: tx.categoria.color ?? '#94a3b8' }}
                         />
-                        <span className="text-text-secondary text-xs">
-                          {tx.categoria.icono && <span className="mr-0.5">{tx.categoria.icono}</span>}
+                        <span className="text-text-secondary text-xs flex items-center gap-1">
+                          {tx.categoria.icono && (
+                            <Icon
+                              icon={tx.categoria.icono.includes(':') ? tx.categoria.icono : `tabler:${tx.categoria.icono}`}
+                              className="w-4 h-4 flex-shrink-0"
+                              style={{ color: tx.categoria.color ?? '#94a3b8' }}
+                            />
+                          )}
                           {tx.categoria.nombre}
                         </span>
                       </div>
