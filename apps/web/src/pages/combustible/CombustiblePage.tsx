@@ -28,9 +28,9 @@ const ICON_B = new L.Icon({
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Rendimiento { id: string; tipoCombustible: string; rendimiento: number; unidad: string; margenConsumo: number; fuente: string | null }
 interface Vehiculo { id: string; marca: string; modelo: string; ano: number; mpgRealWorld: number; margenConsumo: number; fuenteMpg: string | null; activo: boolean; rendimientos?: Rendimiento[] }
-interface Ruta { id: string; nombre: string; distanciaKm: number; vecesPorSemana: number; tipoCombustible: string; porcentajePropio: number; activa: boolean; vehiculoId: string | null; vehiculo: { id: string; marca: string; modelo: string; ano: number } | null }
+interface Ruta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; activa: boolean; vehiculoId: string | null; vehiculo: { id: string; marca: string; modelo: string; ano: number } | null; rendimientoManual: number | null; unidadRendimiento: string }
 interface Precio { id: string; tipo: string; precio: number; moneda: string; fecha: string; fuente: string | null }
-interface CalcRuta { id: string; nombre: string; distanciaKm: number; vecesPorSemana: number; tipoCombustible: string; porcentajePropio: number; vehiculo: { marca: string; modelo: string; rendimientoEfectivo: number | null; unidad: string } | null; kmSemanal: number; kmMensual: number; consumoMes: number; unidadConsumo: string; costoTotal: number; costoNeto: number; precioCombustibleUsado: number }
+interface CalcRuta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; vehiculo: { marca: string; modelo: string; rendimientoEfectivo: number | null; unidad: string } | null; kmSemanal: number; kmMensual: number; consumoMes: number; unidadConsumo: string; costoTotal: number; costoNeto: number; precioCombustibleUsado: number }
 interface Calculo { preciosPorTipo: Record<string, number>; rutas: CalcRuta[]; totales: { kmSemanal: number; kmMensual: number; costoTotal: number; costoNeto: number } }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -438,11 +438,24 @@ function VehiculoForm({ initial, onSubmit, loading, onClose }: { initial?: VForm
 }
 
 // ── RutaForm ───────────────────────────────────────────────────────────────
-interface RForm { vehiculoId: string; nombre: string; distanciaKm: string; vecesPorSemana: string; tipoCombustible: string; porcentajePropio: string }
-const EMPTY_R: RForm = { vehiculoId: '', nombre: '', distanciaKm: '', vecesPorSemana: '5', tipoCombustible: 'Gasolina Regular', porcentajePropio: '100' }
+interface RForm {
+  vehiculoId: string; nombre: string; distanciaKm: string
+  frecuenciaValor: string; frecuenciaUnidad: 'dia' | 'semana' | 'mes'
+  tipoCombustible: string; porcentajePropio: string
+  rendimientoManual: string; unidadRendimiento: 'mpg' | 'km_l' | 'km_m3'
+  crearEvento: boolean; eventoFechaInicio: string; eventoPerpetuo: boolean; eventoFechaFin: string
+}
+const EMPTY_R: RForm = {
+  vehiculoId: '', nombre: '', distanciaKm: '',
+  frecuenciaValor: '5', frecuenciaUnidad: 'semana',
+  tipoCombustible: 'Gasolina Regular', porcentajePropio: '100',
+  rendimientoManual: '', unidadRendimiento: 'mpg',
+  crearEvento: false, eventoFechaInicio: '', eventoPerpetuo: true, eventoFechaFin: '',
+}
 
-function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose }: {
+function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, preciosPorTipo }: {
   initial?: RForm; vehiculos: Vehiculo[]; geoCtx: GeoContext | null
+  preciosPorTipo: Record<string, number>
   onSubmit(d: RForm): void; loading: boolean; onClose(): void
 }) {
   const [f, setF] = useState<RForm>(initial ?? EMPTY_R)
@@ -456,9 +469,27 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose }: {
     }
   }, [showMap])
 
-  const kmMensual = f.distanciaKm && f.vecesPorSemana
-    ? Number(f.distanciaKm) * Number(f.vecesPorSemana) * 4.33
-    : 0
+  const frecVal = Number(f.frecuenciaValor) || 0
+  const dist = Number(f.distanciaKm) || 0
+  const kmMensual = dist === 0 || frecVal === 0 ? 0
+    : f.frecuenciaUnidad === 'dia' ? dist * frecVal * 30.44
+    : f.frecuenciaUnidad === 'mes' ? dist * frecVal
+    : dist * frecVal * 4.33
+
+  // Fuel cost estimate
+  const vehiculo = vehiculos.find(v => v.id === f.vehiculoId)
+  const rendEspecifico = vehiculo?.rendimientos?.find(r => r.tipoCombustible === f.tipoCombustible)
+  const mpgEfectivo = rendEspecifico
+    ? Number(rendEspecifico.rendimiento) / (1 + Number(rendEspecifico.margenConsumo) / 100)
+    : vehiculo
+      ? Number(vehiculo.mpgRealWorld) / (1 + Number(vehiculo.margenConsumo) / 100)
+      : f.rendimientoManual ? Number(f.rendimientoManual) : null
+  const unidadRend = rendEspecifico?.unidad ?? (vehiculo ? 'mpg' : f.unidadRendimiento)
+  const precioFuel = preciosPorTipo[f.tipoCombustible] ?? 0
+  const costoMensual = mpgEfectivo && kmMensual > 0 && precioFuel > 0 ? (() => {
+    if (unidadRend === 'mpg') return (kmMensual / 1.60934 / mpgEfectivo) * precioFuel
+    return (kmMensual / mpgEfectivo) * precioFuel
+  })() : null
 
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(f) }} className="flex flex-col gap-4">
@@ -546,12 +577,45 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose }: {
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1 text-sm text-text-secondary">
-          Veces/semana *
-          <select value={f.vecesPorSemana} onChange={upd('vecesPorSemana')} className="input">
-            {[1,2,3,4,5,6,7].map(n => <option key={n} value={n}>{n} × /semana</option>)}
-          </select>
+          Frecuencia *
+          <input type="number" min={1} max={365} required
+            value={f.frecuenciaValor} onChange={upd('frecuenciaValor')} className="input" placeholder="5" />
         </div>
         <div className="flex flex-col gap-1 text-sm text-text-secondary">
+          Unidad
+          <select value={f.frecuenciaUnidad}
+            onChange={e => setF(p => ({ ...p, frecuenciaUnidad: e.target.value as RForm['frecuenciaUnidad'] }))}
+            className="input">
+            <option value="dia">× por día</option>
+            <option value="semana">× por semana</option>
+            <option value="mes">× por mes</option>
+          </select>
+        </div>
+      </div>
+
+      {!f.vehiculoId && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1 text-sm text-text-secondary">
+            Rendimiento estimado (opcional)
+            <input type="number" step="0.1" min={0.1}
+              value={f.rendimientoManual} onChange={upd('rendimientoManual')}
+              className="input" placeholder="Sin vehículo: ingresa MPG o km/L" />
+          </div>
+          <div className="flex flex-col gap-1 text-sm text-text-secondary">
+            Unidad
+            <select value={f.unidadRendimiento}
+              onChange={e => setF(p => ({ ...p, unidadRendimiento: e.target.value as RForm['unidadRendimiento'] }))}
+              className="input">
+              <option value="mpg">MPG (millas/galón)</option>
+              <option value="km_l">km/L</option>
+              <option value="km_m3">km/m³</option>
+            </select>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1 text-sm text-text-secondary col-span-2 sm:col-span-1">
           % propio
           <input type="number" min={0} max={100} value={f.porcentajePropio}
             onChange={upd('porcentajePropio')} className="input" />
@@ -559,11 +623,64 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose }: {
       </div>
 
       {kmMensual > 0 && (
-        <p className="text-xs text-text-muted bg-surface-elevated rounded-lg px-3 py-2">
-          📊 Estimado: <strong>{fmtDec(kmMensual, 0)} km/mes</strong>
-          {' · '}{fmtDec(kmMensual * Number(f.porcentajePropio) / 100, 0)} km neto tuyo
-        </p>
+        <div className="bg-surface-elevated rounded-lg px-3 py-2.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+          <span>📊 <strong className="text-text-primary">{fmtDec(kmMensual, 0)} km/mes</strong></span>
+          <span>· {fmtDec(kmMensual * Number(f.porcentajePropio) / 100, 0)} km neto tuyo</span>
+          {costoMensual != null && (
+            <span>· 💰 <strong className="text-success">DOP {fmtDec(costoMensual, 0)}/mes</strong></span>
+          )}
+          {!costoMensual && !f.vehiculoId && !f.rendimientoManual && (
+            <span className="text-warning">· ⚠ Ingresa un rendimiento o asigna un vehículo para ver el costo</span>
+          )}
+        </div>
       )}
+
+      {/* ── Evento de gasto programado ── */}
+      <div className="border-t border-border/60 pt-4">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={f.crearEvento}
+            onChange={e => setF(p => ({ ...p, crearEvento: e.target.checked }))}
+            className="w-4 h-4 rounded accent-primary" />
+          <span className="text-sm font-medium text-text-primary">📅 Crear evento de gasto programado</span>
+        </label>
+        {f.crearEvento && (
+          <div className="mt-3 flex flex-col gap-3 pl-6 border-l-2 border-primary/30">
+            {costoMensual != null && (
+              <p className="text-xs bg-success/10 border border-success/30 text-success rounded-lg px-3 py-2">
+                💰 Se creará con presupuesto estimado de <strong>DOP {fmtDec(costoMensual, 0)}/mes</strong>
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1 text-sm text-text-secondary">
+                Fecha de inicio *
+                <input type="date" required={f.crearEvento}
+                  value={f.eventoFechaInicio}
+                  onChange={upd('eventoFechaInicio')} className="input" />
+              </div>
+              <div className="flex flex-col gap-1 text-sm text-text-secondary">
+                Periodicidad
+                <input readOnly value={
+                  f.frecuenciaUnidad === 'dia' ? 'Diaria' :
+                  f.frecuenciaUnidad === 'mes' ? 'Mensual' : 'Semanal'
+                } className="input bg-surface-elevated cursor-not-allowed" />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-text-secondary">
+              <input type="checkbox" checked={f.eventoPerpetuo}
+                onChange={e => setF(p => ({ ...p, eventoPerpetuo: e.target.checked }))}
+                className="w-4 h-4 rounded accent-primary" />
+              Repetir indefinidamente
+            </label>
+            {!f.eventoPerpetuo && (
+              <div className="flex flex-col gap-1 text-sm text-text-secondary">
+                Fecha de fin
+                <input type="date" value={f.eventoFechaFin}
+                  onChange={upd('eventoFechaFin')} className="input" />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="flex gap-2 justify-end pt-1">
         <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
@@ -711,13 +828,23 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
   const inv = () => { qc.invalidateQueries({ queryKey: ['rutas', cid] }); qc.invalidateQueries({ queryKey: ['combustible-calculo', cid] }) }
 
   const create = useMutation({
-    mutationFn: (d: object) => api.post(`/clientes/${cid}/rutas`, d),
-    onSuccess: () => { inv(); setModal(null); showToast('Ruta creada') },
+    mutationFn: (payload: { d: object; f: RForm }) => api.post(`/clientes/${cid}/rutas`, payload.d),
+    onSuccess: (_, payload) => {
+      inv(); setModal(null); showToast('Ruta creada')
+      if (payload.f.crearEvento && payload.f.eventoFechaInicio) {
+        createEvento.mutate(buildEventoPayload(payload.f, payload.f.nombre))
+      }
+    },
     onError: (e: any) => showToast(e?.response?.data?.error ?? e.message, 'error'),
   })
   const update = useMutation({
-    mutationFn: ({ id, d }: { id: string; d: object }) => api.patch(`/rutas/${id}`, d),
-    onSuccess: () => { inv(); setModal(null); showToast('Ruta actualizada') },
+    mutationFn: (payload: { id: string; d: object; f: RForm }) => api.patch(`/rutas/${payload.id}`, payload.d),
+    onSuccess: (_, payload) => {
+      inv(); setModal(null); showToast('Ruta actualizada')
+      if (payload.f.crearEvento && payload.f.eventoFechaInicio) {
+        createEvento.mutate(buildEventoPayload(payload.f, payload.f.nombre))
+      }
+    },
     onError: (e: any) => showToast(e?.response?.data?.error ?? e.message, 'error'),
   })
   const del = useMutation({
@@ -726,10 +853,62 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
     onError: (e: any) => showToast(e?.response?.data?.error ?? e.message, 'error'),
   })
 
-  const toPayload = (f: RForm) => ({
-    nombre: f.nombre, distanciaKm: Number(f.distanciaKm), vecesPorSemana: Number(f.vecesPorSemana),
-    tipoCombustible: f.tipoCombustible, porcentajePropio: Number(f.porcentajePropio), vehiculoId: f.vehiculoId || undefined,
+  const { data: preciosData } = useQuery<{ lista: any[]; latest: any[] }>({
+    queryKey: ['combustible-precios'],
+    queryFn: async () => (await api.get('/combustible/precios')).data.data,
   })
+  const preciosPorTipo: Record<string, number> = {}
+  if (preciosData?.latest) {
+    for (const p of preciosData.latest) {
+      preciosPorTipo[p.tipo] = Number(p.precio)
+    }
+  }
+
+  const createEvento = useMutation({
+    mutationFn: (d: object) => api.post(`/clientes/${cid}/eventos`, d),
+    onSuccess: () => showToast('📅 Evento de gasto programado creado'),
+    onError: (e: any) => showToast(`Error creando evento: ${e?.response?.data?.error ?? e.message}`, 'error'),
+  })
+
+  const toPayload = (f: RForm) => ({
+    nombre: f.nombre,
+    distanciaKm: Number(f.distanciaKm),
+    frecuenciaValor: Number(f.frecuenciaValor),
+    frecuenciaUnidad: f.frecuenciaUnidad,
+    tipoCombustible: f.tipoCombustible,
+    porcentajePropio: Number(f.porcentajePropio),
+    vehiculoId: f.vehiculoId || undefined,
+    rendimientoManual: f.rendimientoManual ? Number(f.rendimientoManual) : undefined,
+    unidadRendimiento: f.unidadRendimiento,
+  })
+
+  const buildEventoPayload = (f: RForm, rutaNombre: string) => {
+    const frecUnidad = f.frecuenciaUnidad
+    const tipoRec = frecUnidad === 'dia' ? 'DIARIA' : frecUnidad === 'mes' ? 'MENSUAL' : 'SEMANAL'
+    const distN = Number(f.distanciaKm) || 0
+    const frecVal = Number(f.frecuenciaValor) || 0
+    const kmMes = frecUnidad === 'dia' ? distN * frecVal * 30.44 : frecUnidad === 'mes' ? distN * frecVal : distN * frecVal * 4.33
+    const veh = vehiculos.find(v => v.id === f.vehiculoId)
+    const rendEspec = veh?.rendimientos?.find(r => r.tipoCombustible === f.tipoCombustible)
+    const mpg = rendEspec
+      ? Number(rendEspec.rendimiento) / (1 + Number(rendEspec.margenConsumo) / 100)
+      : veh ? Number(veh.mpgRealWorld) / (1 + Number(veh.margenConsumo) / 100)
+      : f.rendimientoManual ? Number(f.rendimientoManual) : null
+    const unidR = rendEspec?.unidad ?? (veh ? 'mpg' : f.unidadRendimiento)
+    const precio = preciosPorTipo[f.tipoCombustible] ?? 0
+    const costo = mpg && kmMes > 0 && precio > 0
+      ? (unidR === 'mpg' ? (kmMes / 1.60934 / mpg) * precio : (kmMes / mpg) * precio)
+      : 0
+    return {
+      nombre: `⛽ ${rutaNombre}`,
+      tipo: 'PAGO_PROGRAMADO',
+      fecha: f.eventoFechaInicio || new Date().toISOString().split('T')[0],
+      recurrente: true,
+      tipoRecurrencia: tipoRec,
+      presupuestoEstimado: Math.round(costo * 100) / 100,
+      fechaFin: (!f.eventoPerpetuo && f.eventoFechaFin) ? f.eventoFechaFin : null,
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -740,7 +919,11 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
       {isLoading && <div className="h-24 flex items-center justify-center text-text-muted text-sm">Cargando…</div>}
       <div className="flex flex-col gap-3">
         {rutas.map(r => {
-          const kmMes = Number(r.distanciaKm) * r.vecesPorSemana * 4.33
+          const fVal = (r as any).frecuenciaValor ?? (r as any).vecesPorSemana ?? 5
+          const fUnidad = (r as any).frecuenciaUnidad ?? 'semana'
+          const kmMes = fUnidad === 'dia' ? Number(r.distanciaKm) * fVal * 30.44
+            : fUnidad === 'mes' ? Number(r.distanciaKm) * fVal
+            : Number(r.distanciaKm) * fVal * 4.33
           return (
             <div key={r.id} className="bg-surface border border-border rounded-xl p-4 flex items-center gap-4">
               <div className="text-2xl">🗺️</div>
@@ -751,7 +934,7 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
                 </div>
                 <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-text-muted">
                   <span>📍 {fmtDec(Number(r.distanciaKm), 1)} km</span>
-                  <span>🔁 {r.vecesPorSemana}×/sem → {fmtDec(kmMes, 0)} km/mes</span>
+                  <span>🔁 {fVal}× /{fUnidad} → {fmtDec(kmMes, 0)} km/mes</span>
                   <span>👤 {r.porcentajePropio}% propio</span>
                   {r.vehiculo && <span>🚗 {r.vehiculo.marca} {r.vehiculo.modelo}</span>}
                   {(() => { const cfg = TIPOS_CONFIG[r.tipoCombustible]; return cfg ? <span>{cfg.emoji} {r.tipoCombustible}</span> : null })()}
@@ -774,15 +957,26 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
 
       {modal === 'new' && (
         <Modal title="Nueva ruta" onClose={() => setModal(null)} wide>
-          <RutaForm vehiculos={vehiculos} geoCtx={geoCtx} loading={create.isPending} onClose={() => setModal(null)}
-            onSubmit={f => create.mutate(toPayload(f))} />
+          <RutaForm vehiculos={vehiculos} geoCtx={geoCtx} loading={create.isPending} preciosPorTipo={preciosPorTipo} onClose={() => setModal(null)}
+            onSubmit={f => create.mutate({ d: toPayload(f), f })} />
         </Modal>
       )}
       {modal !== null && typeof modal === 'object' && modal.type === 'edit' && (
         <Modal title="Editar ruta" onClose={() => setModal(null)} wide>
-          <RutaForm vehiculos={vehiculos} geoCtx={geoCtx} loading={update.isPending} onClose={() => setModal(null)}
-            initial={{ vehiculoId: modal.ruta.vehiculoId ?? '', nombre: modal.ruta.nombre, distanciaKm: String(modal.ruta.distanciaKm), vecesPorSemana: String(modal.ruta.vecesPorSemana), tipoCombustible: modal.ruta.tipoCombustible, porcentajePropio: String(modal.ruta.porcentajePropio) }}
-            onSubmit={f => update.mutate({ id: modal.ruta.id, d: toPayload(f) })} />
+          <RutaForm vehiculos={vehiculos} geoCtx={geoCtx} loading={update.isPending} preciosPorTipo={preciosPorTipo} onClose={() => setModal(null)}
+            initial={{
+              vehiculoId: modal.ruta.vehiculoId ?? '',
+              nombre: modal.ruta.nombre,
+              distanciaKm: String(modal.ruta.distanciaKm),
+              frecuenciaValor: String((modal.ruta as any).frecuenciaValor ?? 5),
+              frecuenciaUnidad: ((modal.ruta as any).frecuenciaUnidad ?? 'semana') as 'dia' | 'semana' | 'mes',
+              tipoCombustible: modal.ruta.tipoCombustible,
+              porcentajePropio: String(modal.ruta.porcentajePropio),
+              rendimientoManual: (modal.ruta as any).rendimientoManual ? String((modal.ruta as any).rendimientoManual) : '',
+              unidadRendimiento: ((modal.ruta as any).unidadRendimiento ?? 'mpg') as 'mpg' | 'km_l' | 'km_m3',
+              crearEvento: false, eventoFechaInicio: '', eventoPerpetuo: true, eventoFechaFin: '',
+            }}
+            onSubmit={f => update.mutate({ id: modal.ruta.id, d: toPayload(f), f })} />
         </Modal>
       )}
       {modal !== null && typeof modal === 'object' && modal.type === 'del' && (

@@ -185,6 +185,10 @@ export interface Deuda {
   createdAt: string
 }
 
+export interface Ruta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; activa: boolean; vehiculoId: string | null; vehiculo: { id: string; marca: string; modelo: string; ano: number } | null; rendimientoManual: number | null; unidadRendimiento: string }
+
+export interface CalcRuta { id: string; nombre: string; distanciaKm: number; frecuenciaValor: number; frecuenciaUnidad: string; tipoCombustible: string; porcentajePropio: number; vehiculo: { marca: string; modelo: string; rendimientoEfectivo: number | null; unidad: string } | null; kmSemanal: number; kmMensual: number; consumoMes: number; unidadConsumo: string; costoTotal: number; costoNeto: number; precioCombustibleUsado: number }
+
 export interface VehiculoCatalogo {
   id: string
   marca: string

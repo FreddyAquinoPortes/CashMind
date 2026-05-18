@@ -33,6 +33,7 @@ const EventoBaseSchema = z.object({
   categoriaId:         z.string().optional().nullable(),
   subcategoriaId:      z.string().optional().nullable(),
   notas:               z.string().max(500).optional().nullable(),
+  fechaFin: z.string().optional().nullable().transform(s => s ? new Date(s + (s.length === 10 ? 'T00:00:00' : '')) : null),
 })
 
 const EventoUpdateSchema = EventoBaseSchema.partial()
@@ -91,13 +92,13 @@ export class EventosService {
 
   async crear(clienteId: string, body: unknown) {
     const data = EventoBaseSchema.parse(body)
-    return prisma.evento.create({ data: { ...data, clienteId } as any })
+    return prisma.evento.create({ data: { ...data, clienteId, fechaFin: data.fechaFin ?? null } as any })
   }
 
   async actualizar(id: string, clienteId: string, body: unknown) {
     await this.obtener(id, clienteId)
     const data = EventoUpdateSchema.parse(body)
-    return prisma.evento.update({ where: { id }, data: data as any })
+    return prisma.evento.update({ where: { id }, data: { ...data, ...('fechaFin' in data && { fechaFin: data.fechaFin ?? null }) } as any })
   }
 
   async eliminar(id: string, clienteId: string) {

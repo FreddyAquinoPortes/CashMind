@@ -31,9 +31,12 @@ const rutaSchema = z.object({
   vehiculoId: z.string().optional(),
   nombre: z.string().min(1),
   distanciaKm: z.number().positive(),
-  vecesPorSemana: z.number().int().min(1).max(7),
+  frecuenciaValor: z.number().int().min(1).max(365).default(5),
+  frecuenciaUnidad: z.enum(['dia', 'semana', 'mes']).default('semana'),
   tipoCombustible: z.string().default('Gasolina Regular'),
   porcentajePropio: z.number().min(0).max(100).default(100),
+  rendimientoManual: z.number().positive().optional().nullable(),
+  unidadRendimiento: z.enum(['mpg', 'km_l', 'km_m3']).default('mpg'),
   activa: z.boolean().default(true),
 })
 
@@ -227,7 +230,19 @@ export class CombustibleService {
   async createRuta(clienteId: string, body: unknown) {
     const d = rutaSchema.parse(body)
     return prisma.ruta.create({
-      data: { clienteId, vehiculoId: d.vehiculoId ?? null, nombre: d.nombre, distanciaKm: d.distanciaKm, vecesPorSemana: d.vecesPorSemana, tipoCombustible: d.tipoCombustible, porcentajePropio: d.porcentajePropio, activa: d.activa },
+      data: {
+        clienteId,
+        vehiculoId: d.vehiculoId ?? null,
+        nombre: d.nombre,
+        distanciaKm: d.distanciaKm,
+        frecuenciaValor: d.frecuenciaValor,
+        frecuenciaUnidad: d.frecuenciaUnidad,
+        tipoCombustible: d.tipoCombustible,
+        porcentajePropio: d.porcentajePropio,
+        rendimientoManual: d.rendimientoManual ?? null,
+        unidadRendimiento: d.unidadRendimiento,
+        activa: d.activa,
+      } as any,
     })
   }
 
@@ -239,7 +254,10 @@ export class CombustibleService {
         ...(d.vehiculoId !== undefined && { vehiculoId: d.vehiculoId ?? null }),
         ...(d.nombre !== undefined && { nombre: d.nombre }),
         ...(d.distanciaKm !== undefined && { distanciaKm: d.distanciaKm }),
-        ...(d.vecesPorSemana !== undefined && { vecesPorSemana: d.vecesPorSemana }),
+        ...(d.frecuenciaValor !== undefined && { frecuenciaValor: d.frecuenciaValor }),
+        ...(d.frecuenciaUnidad !== undefined && { frecuenciaUnidad: d.frecuenciaUnidad }),
+        ...('rendimientoManual' in d && { rendimientoManual: d.rendimientoManual ?? null }),
+        ...(d.unidadRendimiento !== undefined && { unidadRendimiento: d.unidadRendimiento }),
         ...(d.tipoCombustible !== undefined && { tipoCombustible: d.tipoCombustible }),
         ...(d.porcentajePropio !== undefined && { porcentajePropio: d.porcentajePropio }),
         ...(d.activa !== undefined && { activa: d.activa }),
@@ -360,7 +378,12 @@ export class CombustibleService {
     )
 
     const detalleRutas = rutas.map(ruta => {
-      const kmSemanal = Number(ruta.distanciaKm) * ruta.vecesPorSemana
+      const dist = Number(ruta.distanciaKm)
+      const fVal = (ruta as any).frecuenciaValor ?? 5
+      const fUnidad = (ruta as any).frecuenciaUnidad ?? 'semana'
+      const kmSemanal = fUnidad === 'dia' ? dist * fVal * 7
+        : fUnidad === 'mes' ? (dist * fVal) / 4.33
+        : dist * fVal
       const kmMensual = kmSemanal * 4.33
       const porcentaje = Number(ruta.porcentajePropio) / 100
       const tipoComb = ruta.tipoCombustible
@@ -395,13 +418,27 @@ export class CombustibleService {
         }
         costoTotal = consumoMes * precioPorUnidad
         costoNeto = costoTotal * porcentaje
+      } else if ((ruta as any).rendimientoManual) {
+        const rend = Number((ruta as any).rendimientoManual)
+        const unidadR = (ruta as any).unidadRendimiento ?? 'mpg'
+        rendimientoEfectivo = rend
+        unidad = unidadR
+        if (unidadR === 'mpg') {
+          const millasMes = kmMensual / 1.60934
+          consumoMes = millasMes / rend
+        } else {
+          consumoMes = kmMensual / rend
+        }
+        costoTotal = consumoMes * precioPorUnidad
+        costoNeto = costoTotal * porcentaje
       }
 
       return {
         id: ruta.id,
         nombre: ruta.nombre,
         distanciaKm: Number(ruta.distanciaKm),
-        vecesPorSemana: ruta.vecesPorSemana,
+        frecuenciaValor: (ruta as any).frecuenciaValor ?? 5,
+        frecuenciaUnidad: (ruta as any).frecuenciaUnidad ?? 'semana',
         tipoCombustible: tipoComb,
         porcentajePropio: Number(ruta.porcentajePropio),
         vehiculo: ruta.vehiculo

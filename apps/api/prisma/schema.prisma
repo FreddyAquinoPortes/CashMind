@@ -468,6 +468,7 @@ model Evento {
   subcategoriaId      String?
   subcategoria        Subcategoria? @relation(fields: [subcategoriaId], references: [id])
   notas               String?
+  fechaFin     DateTime?
   extraCreditoId  String?
   deudaId         String?
   numeroCuota     Int?
@@ -535,7 +536,10 @@ model Ruta {
   vehiculo         Vehiculo? @relation(fields: [vehiculoId], references: [id])
   nombre           String
   distanciaKm      Decimal   @db.Decimal(8, 2)
-  vecesPorSemana   Int
+  frecuenciaValor   Int     @default(5)
+  frecuenciaUnidad  String  @default("semana")  // 'dia' | 'semana' | 'mes'
+  rendimientoManual Decimal? @db.Decimal(8, 2)
+  unidadRendimiento String   @default("mpg")   // 'mpg' | 'km_l' | 'km_m3'
   tipoCombustible  String    @default("Regular")
   porcentajePropio Decimal   @default(100) @db.Decimal(5, 2)
   activa           Boolean   @default(true)
