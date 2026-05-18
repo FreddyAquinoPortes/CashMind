@@ -16,6 +16,7 @@ import { dashboardRouter }    from './modules/dashboard/dashboard.router'
 import { combustibleRouter }  from './modules/combustible/combustible.router'
 import { presupuestosRouter }  from './modules/presupuestos/presupuestos.router'
 import { proyeccionesRouter }  from './modules/proyecciones/proyecciones.router'
+import { supermercadoRouter }  from './modules/supermercado/supermercado.router'
 import { errorHandler }        from './middleware/error.middleware'
 import { requestLogger }      from './middleware/logger.middleware'
 
@@ -51,6 +52,7 @@ export function createApp() {
   app.use('/api', combustibleRouter)
   app.use('/api', presupuestosRouter)
   app.use('/api', proyeccionesRouter)
+  app.use('/api', supermercadoRouter)
 
   app.use(errorHandler)
 

@@ -52,6 +52,13 @@ presupuestosRouter.post('/clientes/:clienteId/presupuestos/:id/lineas', async (r
   } catch (e) { next(e) }
 })
 
+presupuestosRouter.post('/clientes/:clienteId/presupuestos/:id/lineas/bulk', async (req, res, next) => {
+  try {
+    const { items } = req.body as { items: unknown[] }
+    res.status(201).json({ data: await svc.addLineasBulk(req.params.clienteId!, req.params.id!, items as any[]) })
+  } catch (e) { next(e) }
+})
+
 presupuestosRouter.patch('/presupuestos/lineas/:lineaId', async (req, res, next) => {
   try {
     res.json({ data: await svc.updateLinea(req.params.lineaId!, req.body) })

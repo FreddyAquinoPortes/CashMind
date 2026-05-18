@@ -1,4 +1,4 @@
-import { useState, useMemo, createContext, useContext } from 'react'
+import { useState, useMemo, createContext, useContext, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -8,6 +8,8 @@ import { Icon } from '@iconify/react'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
 import { useFmt } from '../../lib/useFmt'
+import { SuperSearch, SuperShoppingList } from '../../components/supermercado/SuperSearch'
+import type { SelectedProduct } from '../../components/supermercado/SuperSearch'
 
 const FmtCtx = createContext<(n: number, isTotal?: boolean) => string>(() => '')
 
@@ -51,7 +53,17 @@ interface LineaPresupuesto {
   eventoId: string | null
   deudaId: string | null
   rutaId: string | null
+  productoExterno: ProductoExterno | null
   ejecuciones: EjecucionLinea[]
+}
+
+interface ProductoExterno {
+  productId: number
+  name: string
+  image: string
+  unit: string
+  brand: string
+  price: number
 }
 
 interface Presupuesto {
@@ -61,6 +73,7 @@ interface Presupuesto {
   fechaFin: string
   tipo: TipoPresupuesto
   estado: EstadoPresupuesto
+  esSupermercado: boolean
   notas: string | null
   lineas: LineaPresupuesto[]
   resumen: {
@@ -310,7 +323,7 @@ function PresupuestoForm({
   initial, onSubmit, onClose, loading,
 }: {
   initial?: Partial<Presupuesto>
-  onSubmit: (d: { nombre: string; fechaInicio: string; fechaFin: string; tipo: TipoPresupuesto; notas?: string }) => void
+  onSubmit: (d: { nombre: string; fechaInicio: string; fechaFin: string; tipo: TipoPresupuesto; esSupermercado?: boolean; notas?: string }) => void
   onClose: () => void
   loading: boolean
 }) {
@@ -320,6 +333,7 @@ function PresupuestoForm({
   const lastDay = new Date(y, now.getMonth() + 1, 0).getDate()
 
   const [tipo, setTipo] = useState<TipoPresupuesto>(initial?.tipo ?? 'NORMAL')
+  const [esSupermercado, setEsSupermercado] = useState(initial?.esSupermercado ?? false)
   const [nombre, setNombre] = useState(
     initial?.nombre ??
     (tipo === 'ATOMICO'
@@ -330,8 +344,18 @@ function PresupuestoForm({
   const [fin, setFin] = useState(initial?.fechaFin?.slice(0, 10) ?? `${y}-${m}-${lastDay}`)
   const [notas, setNotas] = useState(initial?.notas ?? '')
 
+  // Auto-update name when supermercado is toggled
+  const handleSuperToggle = (checked: boolean) => {
+    setEsSupermercado(checked)
+    if (!initial?.id) {
+      setNombre(checked
+        ? `Super ${now.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' })}`
+        : `Lista ${now.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' })}`)
+    }
+  }
+
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit({ nombre, tipo, fechaInicio: ini, fechaFin: fin, notas: notas || undefined }) }}
+    <form onSubmit={e => { e.preventDefault(); onSubmit({ nombre, tipo, esSupermercado: tipo === 'ATOMICO' ? esSupermercado : false, fechaInicio: ini, fechaFin: fin, notas: notas || undefined }) }}
       className="flex flex-col gap-4">
 
       {/* Tipo selector */}
@@ -340,8 +364,8 @@ function PresupuestoForm({
           <span>Tipo de presupuesto</span>
           <div className="grid grid-cols-2 gap-2">
             {([
-              { key: 'NORMAL', icon: 'tabler:layout-list', label: 'Normal', desc: 'Ingresos y gastos por período, ejecución línea por línea' },
-              { key: 'ATOMICO', icon: 'tabler:shopping-cart', label: 'Atómico', desc: 'Lista de ítems que se ejecuta como una sola transacción' },
+              { key: 'NORMAL', icon: 'tabler:layout-list', label: 'Normal', desc: 'Ingresos y gastos por periodo, ejecucion linea por linea' },
+              { key: 'ATOMICO', icon: 'tabler:shopping-cart', label: 'Atomico', desc: 'Lista de items que se ejecuta como una sola transaccion' },
             ] as const).map(t => (
               <button key={t.key} type="button" onClick={() => setTipo(t.key)}
                 className={`flex flex-col gap-1 p-3 rounded-xl border text-left transition-all
@@ -355,6 +379,29 @@ function PresupuestoForm({
             ))}
           </div>
         </div>
+      )}
+
+      {/* Supermercado checkbox — only for ATOMICO */}
+      {tipo === 'ATOMICO' && !initial?.id && (
+        <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:border-primary/40 cursor-pointer transition-all">
+          <input
+            type="checkbox"
+            checked={esSupermercado}
+            onChange={e => handleSuperToggle(e.target.checked)}
+            className="accent-primary w-4 h-4"
+          />
+          <div className="flex items-center gap-2 flex-1">
+            <Icon icon="tabler:building-store" className={`w-5 h-5 ${esSupermercado ? 'text-primary' : 'text-text-muted'}`} />
+            <div>
+              <span className={`text-sm font-medium ${esSupermercado ? 'text-primary' : 'text-text-primary'}`}>
+                Presupuesto de supermercado
+              </span>
+              <p className="text-xs text-text-muted">
+                Busca y compara precios en supermercados de RD
+              </p>
+            </div>
+          </div>
+        </label>
       )}
 
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
@@ -377,7 +424,7 @@ function PresupuestoForm({
       </label>
       <div className="flex gap-2 justify-end pt-2">
         <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
-        <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Creando…' : 'Crear'}</button>
+        <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Creando...' : 'Crear'}</button>
       </div>
     </form>
   )
@@ -492,6 +539,7 @@ function AtomicoView({
   onToggle,
   onDelete,
   onAddItem,
+  onSearchProducts,
   onEjecutarTodo,
   ejecutando,
 }: {
@@ -499,6 +547,7 @@ function AtomicoView({
   onToggle: (lineaId: string, incluido: boolean) => void
   onDelete: (lineaId: string) => void
   onAddItem: () => void
+  onSearchProducts?: () => void
   onEjecutarTodo: () => void
   ejecutando: boolean
 }) {
@@ -529,10 +578,18 @@ function AtomicoView({
             {presupuesto.nombre}
           </span>
           {!cerrado && (
-            <button onClick={onAddItem}
-              className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors">
-              <Icon icon="tabler:plus" className="w-3.5 h-3.5" /> Añadir ítem
-            </button>
+            <div className="flex items-center gap-2">
+              {presupuesto.esSupermercado && onSearchProducts && (
+                <button onClick={onSearchProducts}
+                  className="flex items-center gap-1 text-xs text-success hover:text-success/80 transition-colors font-medium">
+                  <Icon icon="tabler:building-store" className="w-3.5 h-3.5" /> Buscar productos
+                </button>
+              )}
+              <button onClick={onAddItem}
+                className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors">
+                <Icon icon="tabler:plus" className="w-3.5 h-3.5" /> Añadir item
+              </button>
+            </div>
           )}
         </div>
 
@@ -557,10 +614,29 @@ function AtomicoView({
                   onChange={e => onToggle(l.id, e.target.checked)}
                   className="accent-primary w-4 h-4 flex-shrink-0 cursor-pointer"
                 />
+                {/* Product thumbnail (supermercado items) */}
+                {l.productoExterno?.image && (
+                  <div className="w-10 h-10 rounded-lg bg-white flex-shrink-0 overflow-hidden border border-border/50">
+                    <img
+                      src={l.productoExterno.image}
+                      alt={l.concepto}
+                      className="w-full h-full object-contain p-0.5"
+                      loading="lazy"
+                    />
+                  </div>
+                )}
                 {/* Concepto */}
-                <span className={`flex-1 text-sm ${tachado ? 'line-through text-text-muted' : 'text-text-primary'}`}>
-                  {l.concepto}
-                </span>
+                <div className={`flex-1 min-w-0 ${tachado ? 'line-through text-text-muted' : ''}`}>
+                  <span className={`text-sm ${tachado ? 'text-text-muted' : 'text-text-primary'}`}>
+                    {l.concepto}
+                  </span>
+                  {l.productoExterno && (
+                    <div className="text-xs text-text-muted truncate">
+                      {l.productoExterno.brand && <span>{l.productoExterno.brand} · </span>}
+                      {l.productoExterno.unit}
+                    </div>
+                  )}
+                </div>
                 {/* Execution badge */}
                 {l.ejecuciones.length > 0 && (
                   <span className="text-xs px-1.5 py-0.5 rounded-full bg-success/15 text-success font-medium flex-shrink-0">
@@ -622,6 +698,106 @@ function AtomicoView({
   )
 }
 
+// ── Supermercado product picker modal ─────────────────────────────────────
+function SuperPickerModal({
+  presupuestoId,
+  loading,
+  onClose,
+  onSubmit,
+}: {
+  presupuestoId: string
+  loading: boolean
+  onClose: () => void
+  onSubmit: (items: object[]) => void
+}) {
+  const [selected, setSelected] = useState<SelectedProduct[]>([])
+
+  const handleAdd = () => {
+    const items = selected.map(p => ({
+      tipo: 'GASTO' as const,
+      concepto: p.name,
+      montoPlaneado: p.price,
+      productoExterno: {
+        productId: p.productId,
+        name: p.name,
+        image: p.image,
+        unit: p.unit,
+        brand: p.brand,
+        price: p.price,
+      },
+    }))
+    onSubmit(items)
+  }
+
+  const total = selected.reduce((s, p) => s + p.price, 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-surface border border-border rounded-xl shadow-2xl flex flex-col max-h-[90vh] w-full max-w-4xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Icon icon="tabler:building-store" className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-semibold text-text-primary">Buscar productos de supermercado</h2>
+          </div>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">&times;</button>
+        </div>
+
+        {/* Body: two panels */}
+        <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+          {/* Left: Search */}
+          <div className="flex-1 overflow-y-auto p-6 border-r border-border">
+            <SuperSearch
+              selectedProducts={selected}
+              onProductsChange={setSelected}
+            />
+          </div>
+
+          {/* Right: Shopping list */}
+          <div className="md:w-80 overflow-y-auto p-4 bg-background/50 flex flex-col gap-4">
+            <SuperShoppingList
+              products={selected}
+              onRemove={(id) => setSelected(prev => prev.filter(p => p.productId !== id))}
+            />
+            {selected.length === 0 && (
+              <div className="text-center text-text-muted text-sm py-8">
+                <Icon icon="tabler:shopping-cart-off" className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p>Selecciona productos para agregarlos a tu lista</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-border flex-shrink-0">
+          <div className="text-sm text-text-secondary">
+            {selected.length > 0 && (
+              <span>
+                <strong className="text-text-primary">{selected.length}</strong> productos ·{' '}
+                <strong className="text-primary tabular-nums">
+                  RD${total.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                </strong>
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={loading || selected.length === 0}
+              className="btn-primary flex items-center gap-2 disabled:opacity-50"
+            >
+              <Icon icon="tabler:plus" className="w-4 h-4" />
+              {loading ? 'Agregando...' : `Agregar ${selected.length} productos`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Page
 // ─────────────────────────────────────────────────────────────────────────────
@@ -642,6 +818,7 @@ export function PresupuestosPage() {
     | { type: 'sugerencias'; presupuestoId: string; sugerencias: Sugerencia[] }
     | { type: 'ejecutarLinea'; linea: LineaPresupuesto; presupuestoId: string }
     | { type: 'ejecutarAtomico'; presupuesto: Presupuesto }
+    | { type: 'superPicker'; presupuestoId: string }
     | null
   >(null)
 
@@ -734,6 +911,17 @@ export function PresupuestosPage() {
     onError: (e: Error) => showToast(e.message || 'Error al ejecutar', 'error'),
   })
 
+  const addBulkLineas = useMutation({
+    mutationFn: ({ presupuestoId, items }: { presupuestoId: string; items: object[] }) =>
+      api.post(`/clientes/${clienteId}/presupuestos/${presupuestoId}/lineas/bulk`, { items }),
+    onSuccess: (_res, vars) => {
+      invalidate()
+      setModal(null)
+      showToast(`${vars.items.length} productos agregados`)
+    },
+    onError: () => showToast('Error al agregar productos', 'error'),
+  })
+
   const ejecutarLinea = useMutation({
     mutationFn: ({ lineaId, d }: { lineaId: string; d: object }) =>
       api.post(`/clientes/${clienteId}/presupuestos/lineas/${lineaId}/ejecutar`, d),
@@ -818,7 +1006,12 @@ export function PresupuestosPage() {
                     {p.estado}
                   </span>
                   {p.tipo === 'ATOMICO' && (
-                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Atómico</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Atomico</span>
+                  )}
+                  {p.esSupermercado && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-success/15 text-success font-medium flex items-center gap-0.5">
+                      <Icon icon="tabler:building-store" className="w-3 h-3" /> Super
+                    </span>
                   )}
                 </div>
               </button>
@@ -900,6 +1093,7 @@ export function PresupuestosPage() {
                   onToggle={(lineaId, incluido) => toggleIncluido.mutate({ lineaId, incluido })}
                   onDelete={id => deleteLinea.mutate(id)}
                   onAddItem={() => setModal({ type: 'newLinea', presupuestoId: presupuesto.id, tipoDefecto: 'GASTO' })}
+                  onSearchProducts={presupuesto.esSupermercado ? () => setModal({ type: 'superPicker', presupuestoId: presupuesto.id }) : undefined}
                   onEjecutarTodo={() => setModal({ type: 'ejecutarAtomico', presupuesto })}
                   ejecutando={ejecutarAtomico.isPending}
                 />
@@ -1232,6 +1426,15 @@ export function PresupuestosPage() {
             onSubmit={d => ejecutarLinea.mutate({ lineaId: modal.linea.id, d })}
           />
         </Modal>
+      )}
+
+      {modal?.type === 'superPicker' && (
+        <SuperPickerModal
+          presupuestoId={modal.presupuestoId}
+          loading={addBulkLineas.isPending}
+          onClose={() => setModal(null)}
+          onSubmit={(items) => addBulkLineas.mutate({ presupuestoId: modal.presupuestoId, items })}
+        />
       )}
 
       {modal?.type === 'ejecutarAtomico' && (() => {

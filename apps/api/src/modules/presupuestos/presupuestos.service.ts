@@ -45,6 +45,7 @@ export async function createPresupuesto(clienteId: string, data: {
   fechaInicio: string
   fechaFin: string
   tipo?: 'NORMAL' | 'ATOMICO'
+  esSupermercado?: boolean
   notas?: string
   lineas?: LineaInput[]
 }) {
@@ -54,6 +55,7 @@ export async function createPresupuesto(clienteId: string, data: {
       clienteId,
       nombre: rest.nombre,
       tipo: rest.tipo ?? 'NORMAL',
+      esSupermercado: rest.esSupermercado ?? false,
       fechaInicio: new Date(rest.fechaInicio),
       fechaFin: new Date(rest.fechaFin),
       notas: rest.notas ?? null,
@@ -119,6 +121,7 @@ interface LineaInput {
   eventoId?: string | null
   deudaId?: string | null
   rutaId?: string | null
+  productoExterno?: Record<string, unknown> | null
 }
 
 export async function addLinea(clienteId: string, presupuestoId: string, data: LineaInput) {
@@ -138,9 +141,31 @@ export async function addLinea(clienteId: string, presupuestoId: string, data: L
       eventoId: data.eventoId ?? null,
       deudaId: data.deudaId ?? null,
       rutaId: data.rutaId ?? null,
+      productoExterno: data.productoExterno ?? undefined,
     },
     include: { ejecuciones: true },
   })
+}
+
+/** Bulk-add multiple líneas at once (used by supermercado product picker) */
+export async function addLineasBulk(clienteId: string, presupuestoId: string, items: LineaInput[]) {
+  await prisma.presupuesto.findFirstOrThrow({ where: { id: presupuestoId, clienteId } })
+  const count = await prisma.lineaPresupuesto.count({ where: { presupuestoId } })
+  const created = await prisma.lineaPresupuesto.createManyAndReturn({
+    data: items.map((item, i) => ({
+      presupuestoId,
+      tipo: item.tipo,
+      concepto: item.concepto,
+      categoriaId: item.categoriaId ?? null,
+      subcategoriaId: item.subcategoriaId ?? null,
+      montoPlaneado: item.montoPlaneado,
+      notas: item.notas ?? null,
+      orden: count + i,
+      incluido: item.incluido ?? true,
+      productoExterno: item.productoExterno ?? undefined,
+    })),
+  })
+  return created
 }
 
 export async function toggleIncluido(lineaId: string, incluido: boolean) {

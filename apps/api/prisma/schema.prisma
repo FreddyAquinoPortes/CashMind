@@ -560,39 +560,41 @@ model PrecioCombustible {
 
 // =================== PRESUPUESTOS Y PLANES ===================
 model Presupuesto {
-  id          String               @id @default(cuid())
-  clienteId   String
-  cliente     Cliente              @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  nombre      String
-  fechaInicio DateTime
-  fechaFin    DateTime
-  tipo        TipoPresupuesto      @default(NORMAL)
-  estado      EstadoPresupuesto    @default(BORRADOR)
-  notas       String?
-  lineas      LineaPresupuesto[]
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  id              String               @id @default(cuid())
+  clienteId       String
+  cliente         Cliente              @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nombre          String
+  fechaInicio     DateTime
+  fechaFin        DateTime
+  tipo            TipoPresupuesto      @default(NORMAL)
+  estado          EstadoPresupuesto    @default(BORRADOR)
+  esSupermercado  Boolean              @default(false)
+  notas           String?
+  lineas          LineaPresupuesto[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   @@index([clienteId])
 }
 
 model LineaPresupuesto {
-  id             String               @id @default(cuid())
-  presupuestoId  String
-  presupuesto    Presupuesto          @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
-  tipo           TipoLineaPresupuesto
-  concepto       String
-  categoriaId    String?
-  subcategoriaId String?
-  montoPlaneado  Decimal              @db.Decimal(15, 2)
-  notas          String?
-  orden          Int                  @default(0)
-  incluido       Boolean              @default(true)
-  eventoId       String?
-  deudaId        String?
-  rutaId         String?
-  ejecuciones    EjecucionLinea[]
-  createdAt      DateTime             @default(now())
+  id              String               @id @default(cuid())
+  presupuestoId   String
+  presupuesto     Presupuesto          @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
+  tipo            TipoLineaPresupuesto
+  concepto        String
+  categoriaId     String?
+  subcategoriaId  String?
+  montoPlaneado   Decimal              @db.Decimal(15, 2)
+  notas           String?
+  orden           Int                  @default(0)
+  incluido        Boolean              @default(true)
+  eventoId        String?
+  deudaId         String?
+  rutaId          String?
+  productoExterno Json?
+  ejecuciones     EjecucionLinea[]
+  createdAt       DateTime             @default(now())
 
   @@index([presupuestoId])
 }
