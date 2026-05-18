@@ -33,48 +33,35 @@ adminRouter.post('/admin/rollback-last-balance', async (req: Request, res: Respo
   const clienteId = usuario.clientes[0].id
 
   // Find the last transaction that changed an account balance
-  const lastTx = await prisma.transaccion.findFirst({
-    where: {
-      clienteId,
-      cuentaId: { not: null },
-      tipo: { in: ['INGRESO', 'GASTO'] },
-    },
+  // Diagnostic: show all accounts and last 5 transactions regardless of type
+  const cuentas = await prisma.cuentaBancaria.findMany({
+    where: { clienteId },
+    select: { id: true, alias: true, banco: true, saldo: true, tipo: true },
+  })
+
+  const lastTxs = await prisma.transaccion.findMany({
+    where: { clienteId },
     orderBy: { createdAt: 'desc' },
-    include: { cuenta: { select: { alias: true, banco: true, saldo: true } } },
+    take: 10,
+    select: { id: true, concepto: true, tipo: true, monto: true, cuentaId: true, tarjetaId: true, createdAt: true, estado: true },
   })
 
-  if (!lastTx) {
-    res.status(404).json({ error: 'No qualifying transaction found' })
-    return
-  }
-
-  const revertDelta = lastTx.tipo === 'INGRESO'
-    ? -Number(lastTx.monto)
-    : Number(lastTx.monto)
-
-  const saldoAntes = Number((lastTx as any).cuenta?.saldo ?? 0)
-
-  const cuentaUpdated = await prisma.cuentaBancaria.update({
-    where: { id: lastTx.cuentaId! },
-    data: { saldo: { increment: revertDelta } },
-  })
+  const lastPagosEC = await prisma.pagoExtraCredito.findMany({
+    orderBy: { fecha: 'desc' },
+    take: 5,
+    include: { extraCredito: { include: { tarjeta: { select: { clienteId: true, alias: true } } } }, cuenta: { select: { alias: true, saldo: true } } },
+  }).then(rows => rows.filter(r => r.extraCredito?.tarjeta?.clienteId === clienteId))
 
   res.json({
-    ok: true,
-    transaccion: {
-      id: lastTx.id,
-      concepto: lastTx.concepto,
-      tipo: lastTx.tipo,
-      monto: lastTx.monto,
-      createdAt: lastTx.createdAt,
-    },
-    cuenta: {
-      id: lastTx.cuentaId,
-      alias: (lastTx as any).cuenta?.alias ?? (lastTx as any).cuenta?.banco,
-      saldoAntes,
-      saldoDespues: Number(cuentaUpdated.saldo),
-      delta: revertDelta,
-    },
-    nota: 'La transacción NO fue eliminada — solo se revirtió el saldo.',
+    clienteId,
+    cuentas,
+    ultimasTransacciones: lastTxs,
+    ultimosPagosExtraCredito: lastPagosEC.map(p => ({
+      id: p.id,
+      monto: p.monto,
+      fecha: p.fecha,
+      cuenta: p.cuenta,
+      extraCredito: p.extraCredito?.descripcion,
+    })),
   })
 })
