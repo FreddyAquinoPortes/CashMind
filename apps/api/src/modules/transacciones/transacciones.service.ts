@@ -116,6 +116,7 @@ export class TransaccionesService {
         pagadoPorId: data.pagadoPorId ?? null,
       },
     })
+
     // Update bank account balance
     if (data.cuentaId && (data.tipo === 'GASTO' || data.tipo === 'INGRESO')) {
       const delta = data.tipo === 'INGRESO' ? Number(data.monto) : -Number(data.monto)
@@ -126,13 +127,66 @@ export class TransaccionesService {
     }
 
     // Update credit card balance
-    // GASTO on card → more debt (saldoActual increases)
-    // INGRESO on card → payment/credit received (saldoActual decreases)
     if (data.tarjetaId && (data.tipo === 'GASTO' || data.tipo === 'INGRESO')) {
       const delta = data.tipo === 'GASTO' ? Number(data.monto) : -Number(data.monto)
       await prisma.tarjetaCredito.update({
         where: { id: data.tarjetaId },
         data: { saldoActual: { increment: delta } },
+      })
+    }
+
+    // ── Multi-debt payment distribution ──────────────────────────────────────
+    // When tipo=PAGO_DEUDA and deudaIds is provided, distribute payment
+    // across debts sorted by saldoActual ASC (pay smallest first).
+    if (data.tipo === 'PAGO_DEUDA' && data.deudaIds && data.deudaIds.length > 0) {
+      const debts = await prisma.deuda.findMany({
+        where: { id: { in: data.deudaIds }, estado: 'ACTIVA' },
+        orderBy: { saldoActual: 'asc' },
+      })
+
+      let remaining = Number(data.monto)
+
+      await prisma.$transaction(async (trx) => {
+        for (const debt of debts) {
+          if (remaining <= 0) break
+          const saldo = Number(debt.saldoActual)
+          const payment = Math.min(remaining, saldo)
+          const nuevoSaldo = Math.max(0, saldo - payment)
+          remaining = Math.round((remaining - payment) * 100) / 100
+
+          // Create PagoDeuda record linked to this transaction
+          await trx.pagoDeuda.create({
+            data: {
+              deudaId: debt.id,
+              monto: payment,
+              fecha: data.fecha,
+              estado: 'EJECUTADO',
+              notas: data.notas ?? null,
+              transaccionId: tx.id,
+            },
+          })
+
+          // Update debt balance
+          await trx.deuda.update({
+            where: { id: debt.id },
+            data: {
+              saldoActual: nuevoSaldo,
+              ...(nuevoSaldo <= 0 && { estado: 'SALDADA' }),
+            },
+          })
+
+          // Mark the next PLANIFICADO cuota event as EJECUTADO
+          const nextEvento = await trx.evento.findFirst({
+            where: { deudaId: debt.id, estado: 'PLANIFICADO' },
+            orderBy: { numeroCuota: 'asc' },
+          })
+          if (nextEvento) {
+            await trx.evento.update({
+              where: { id: nextEvento.id },
+              data: { estado: 'EJECUTADO' },
+            })
+          }
+        }
       })
     }
 
@@ -206,9 +260,24 @@ export class TransaccionesService {
           data: { saldoActual: { increment: revertDelta } },
         })
       }
+      // Revert debt balances for PAGO_DEUDA
+      if (tx.tipo === 'PAGO_DEUDA') {
+        const pagos = await trx.pagoDeuda.findMany({ where: { transaccionId: id } })
+        for (const pago of pagos) {
+          await trx.deuda.update({
+            where: { id: pago.deudaId },
+            data: {
+              saldoActual: { increment: Number(pago.monto) },
+              // Re-activate if it was marked SALDADA by this transaction
+              estado: 'ACTIVA',
+            },
+          })
+        }
+        await trx.pagoDeuda.deleteMany({ where: { transaccionId: id } })
+      }
       await trx.transaccion.delete({ where: { id } })
     })
 
-    return { ok: true, reverted: !!(tx.cuentaId || tx.tarjetaId) }
+    return { ok: true, reverted: !!(tx.cuentaId || tx.tarjetaId || tx.tipo === 'PAGO_DEUDA') }
   }
 }

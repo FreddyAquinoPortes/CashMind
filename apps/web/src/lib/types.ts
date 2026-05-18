@@ -180,7 +180,24 @@ export interface Deuda {
   diaCobro: number | null
   estado: EstadoDeuda
   notas: string | null
+  categoriaId: string | null
+  subcategoriaId: string | null
   createdAt: string
+}
+
+export interface VehiculoCatalogo {
+  id: string
+  marca: string
+  modelo: string
+  anoDesde: number
+  anoHasta: number | null
+  motor: string | null
+  transmision: string | null
+  combustible: string
+  mpgCiudad: number
+  mpgCarretera: number
+  mpgCombinado: number
+  fuente: string | null
 }
 
 export interface PagoDeuda {

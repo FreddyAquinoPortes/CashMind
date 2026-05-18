@@ -1,5 +1,20 @@
 import { z } from 'zod'
+import * as https from 'https'
+import * as http from 'http'
 import { prisma } from '../../shared/prisma'
+
+// ── DR fuel type names (matches prestocombustibles.com nomenclature) ────────
+export const DR_FUEL_TYPES = [
+  'Gasolina Premium',
+  'Gasolina Regular',
+  'Gasoil Premium',
+  'Gasoil Regular',
+  'Kerosene / Jet Fuel',
+  'Gas Licuado (GLP)',
+  'Gas Natural (GNC)',
+]
+
+// ── Schemas ────────────────────────────────────────────────────────────────
 
 const vehiculoSchema = z.object({
   marca: z.string().min(1),
@@ -9,6 +24,7 @@ const vehiculoSchema = z.object({
   margenConsumo: z.number().min(0).max(100).default(15),
   fuenteMpg: z.string().optional(),
   activo: z.boolean().default(true),
+  catalogoId: z.string().optional().nullable(),
 })
 
 const rutaSchema = z.object({
@@ -16,7 +32,7 @@ const rutaSchema = z.object({
   nombre: z.string().min(1),
   distanciaKm: z.number().positive(),
   vecesPorSemana: z.number().int().min(1).max(7),
-  tipoCombustible: z.string().default('Regular'),
+  tipoCombustible: z.string().default('Gasolina Regular'),
   porcentajePropio: z.number().min(0).max(100).default(100),
   activa: z.boolean().default(true),
 })
@@ -38,16 +54,104 @@ const precioSchema = z.object({
   fuente: z.string().optional(),
 })
 
+// ── HTTP helper (Node built-in, no axios needed) ───────────────────────────
+
+function fetchText(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith('https') ? https : http
+    lib.get(url, { headers: { 'User-Agent': 'CashMind/1.0' } }, res => {
+      let data = ''
+      res.on('data', chunk => { data += chunk })
+      res.on('end', () => resolve(data))
+    }).on('error', reject)
+  })
+}
+
+// ── Scrape prestocombustibles.com ──────────────────────────────────────────
+// Parses the fuel price table from the site.
+// Expected HTML pattern: fuel name in <td> followed by price in next <td>
+
+const FUEL_NAME_MAP: Record<string, string> = {
+  'gasolina premium':      'Gasolina Premium',
+  'premium':               'Gasolina Premium',
+  'gasolina regular':      'Gasolina Regular',
+  'regular':               'Gasolina Regular',
+  'gasoil premium':        'Gasoil Premium',
+  'gasoil regular':        'Gasoil Regular',
+  'óptimo':                'Gasoil Premium',
+  'optimo':                'Gasoil Premium',
+  'kerosene':              'Kerosene / Jet Fuel',
+  'kerosene / jet fuel':   'Kerosene / Jet Fuel',
+  'gas licuado':           'Gas Licuado (GLP)',
+  'gas licuado (lp)':      'Gas Licuado (GLP)',
+  'glp':                   'Gas Licuado (GLP)',
+  'gas natural':           'Gas Natural (GNC)',
+  'gas natural comprimido':'Gas Natural (GNC)',
+  'gnc':                   'Gas Natural (GNC)',
+}
+
+async function scrapeDRFuelPrices(): Promise<{ tipo: string; precio: number; unidad: string }[]> {
+  const html = await fetchText('https://www.prestocombustibles.com/precios-combustibles/')
+
+  const results: { tipo: string; precio: number; unidad: string }[] = []
+
+  // Strip HTML tags from a string
+  const stripHtml = (s: string) => s.replace(/<[^>]+>/g, '').trim()
+
+  // Match all <tr> rows
+  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+  let trMatch
+  while ((trMatch = trRegex.exec(html)) !== null) {
+    const row = trMatch[1]
+    // Extract all <td> cells
+    const cells: string[] = []
+    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi
+    let tdMatch
+    while ((tdMatch = tdRegex.exec(row)) !== null) {
+      cells.push(stripHtml(tdMatch[1]))
+    }
+    if (cells.length < 2) continue
+
+    const rawName = cells[0].toLowerCase().trim()
+    const mappedName = FUEL_NAME_MAP[rawName]
+    if (!mappedName) continue
+
+    // Find numeric price in any cell
+    for (let i = 1; i < cells.length; i++) {
+      const priceMatch = cells[i].match(/[\d,]+\.?\d*/)
+      if (priceMatch) {
+        const precio = parseFloat(priceMatch[0].replace(',', ''))
+        if (precio > 0) {
+          const unidad = mappedName === 'Gas Natural (GNC)' ? 'm3' : 'galon'
+          results.push({ tipo: mappedName, precio, unidad })
+          break
+        }
+      }
+    }
+  }
+
+  return results
+}
+
 export class CombustibleService {
   // ── Vehículos ──────────────────────────────────────────────────────────────
   async listVehiculos(clienteId: string) {
-    return prisma.vehiculo.findMany({ where: { clienteId }, orderBy: { marca: 'asc' } })
+    return prisma.vehiculo.findMany({
+      where: { clienteId },
+      orderBy: { marca: 'asc' },
+      include: { catalogo: true },
+    })
   }
 
   async createVehiculo(clienteId: string, body: unknown) {
     const d = vehiculoSchema.parse(body)
     return prisma.vehiculo.create({
-      data: { clienteId, marca: d.marca, modelo: d.modelo, ano: d.ano, mpgRealWorld: d.mpgRealWorld, margenConsumo: d.margenConsumo, fuenteMpg: d.fuenteMpg ?? null, activo: d.activo },
+      data: {
+        clienteId, marca: d.marca, modelo: d.modelo, ano: d.ano,
+        mpgRealWorld: d.mpgRealWorld, margenConsumo: d.margenConsumo,
+        fuenteMpg: d.fuenteMpg ?? null, activo: d.activo,
+        catalogoId: d.catalogoId ?? null,
+      } as any,
     })
   }
 
@@ -84,12 +188,31 @@ export class CombustibleService {
         ...(d.margenConsumo !== undefined && { margenConsumo: d.margenConsumo }),
         ...(d.fuenteMpg !== undefined && { fuenteMpg: d.fuenteMpg ?? null }),
         ...(d.activo !== undefined && { activo: d.activo }),
-      },
+        ...('catalogoId' in d && { catalogoId: (d as any).catalogoId ?? null }),
+      } as any,
     })
   }
 
   async removeVehiculo(id: string) {
     return prisma.vehiculo.delete({ where: { id } })
+  }
+
+  // ── Catálogo de vehículos ──────────────────────────────────────────────────
+  async searchCatalogo(q?: string, marca?: string) {
+    const where: Record<string, any> = {}
+    if (marca) where['marca'] = { equals: marca, mode: 'insensitive' }
+    if (q) {
+      where['OR'] = [
+        { marca: { contains: q, mode: 'insensitive' } },
+        { modelo: { contains: q, mode: 'insensitive' } },
+        { motor: { contains: q, mode: 'insensitive' } },
+      ]
+    }
+    return (prisma as any).vehiculoCatalogo.findMany({
+      where,
+      orderBy: [{ marca: 'asc' }, { modelo: 'asc' }, { anoDesde: 'desc' }],
+      take: 50,
+    })
   }
 
   // ── Rutas ──────────────────────────────────────────────────────────────────
@@ -134,9 +257,20 @@ export class CombustibleService {
   }
 
   async latestPrecios() {
-    const tipos = ['Regular', 'Premium', 'Gasoil', 'GLP', 'GNC']
+    // Get latest price for every fuel type that has ever been recorded
+    const allTypes = await prisma.precioCombustible.findMany({
+      select: { tipo: true },
+      distinct: ['tipo'],
+    })
+    const tipos = allTypes.map(t => t.tipo)
+
+    // Fall back to DR defaults if DB is empty
+    const effectiveTipos = tipos.length > 0 ? tipos : DR_FUEL_TYPES
+
     const results = await Promise.all(
-      tipos.map(tipo => prisma.precioCombustible.findFirst({ where: { tipo }, orderBy: { fecha: 'desc' } }))
+      effectiveTipos.map(tipo =>
+        prisma.precioCombustible.findFirst({ where: { tipo }, orderBy: { fecha: 'desc' } })
+      )
     )
     return results.filter(Boolean)
   }
@@ -175,6 +309,37 @@ export class CombustibleService {
     return prisma.precioCombustible.delete({ where: { id } })
   }
 
+  // ── Sync DR fuel prices from prestocombustibles.com ───────────────────────
+  async syncPrecios(): Promise<{ updated: number; errors: string[] }> {
+    const errors: string[] = []
+    let updated = 0
+    const fecha = new Date()
+
+    try {
+      const scraped = await scrapeDRFuelPrices()
+
+      if (scraped.length === 0) {
+        errors.push('No se encontraron precios en el sitio. Puede que la estructura del HTML haya cambiado.')
+        return { updated, errors }
+      }
+
+      for (const { tipo, precio, unidad } of scraped) {
+        try {
+          await prisma.precioCombustible.create({
+            data: { tipo, precio, moneda: 'DOP', unidad, fecha, fuente: 'prestocombustibles.com' },
+          })
+          updated++
+        } catch (e: any) {
+          errors.push(`${tipo}: ${e.message}`)
+        }
+      }
+    } catch (e: any) {
+      errors.push(`Error al obtener página: ${e.message}`)
+    }
+
+    return { updated, errors }
+  }
+
   // ── Cálculo Principal ──────────────────────────────────────────────────────
   async calcular(clienteId: string) {
     const rutas = await prisma.ruta.findMany({
@@ -184,13 +349,13 @@ export class CombustibleService {
       },
     })
 
-    // Cargar el último precio de cada tipo de combustible usado en las rutas
+    // Load latest price for each fuel type used in routes
     const tiposUsados = [...new Set(rutas.map(r => r.tipoCombustible))]
     const preciosPorTipo: Record<string, number> = {}
     await Promise.all(
       tiposUsados.map(async tipo => {
         const p = await prisma.precioCombustible.findFirst({ where: { tipo }, orderBy: { fecha: 'desc' } })
-        preciosPorTipo[tipo as string] = p ? Number(p.precio) : 294.5
+        preciosPorTipo[tipo as string] = p ? Number(p.precio) : 293.5
       })
     )
 
@@ -199,16 +364,15 @@ export class CombustibleService {
       const kmMensual = kmSemanal * 4.33
       const porcentaje = Number(ruta.porcentajePropio) / 100
       const tipoComb = ruta.tipoCombustible
-      const precioPorUnidad = preciosPorTipo[tipoComb] ?? 294.5
+      const precioPorUnidad = preciosPorTipo[tipoComb] ?? 293.5
 
-      let consumoMes = 0   // galones o m³ según unidad
+      let consumoMes = 0
       let costoTotal = 0
       let costoNeto = 0
       let rendimientoEfectivo: number | null = null
       let unidad = 'mpg'
 
       if (ruta.vehiculo) {
-        // Busca rendimiento específico para el combustible de la ruta
         const rendEspecifico = ruta.vehiculo.rendimientos.find(r => r.tipoCombustible === tipoComb)
 
         if (rendEspecifico) {
@@ -217,7 +381,6 @@ export class CombustibleService {
           rendimientoEfectivo = +(rend / (1 + margen)).toFixed(2)
           unidad = rendEspecifico.unidad
         } else {
-          // Fallback: usa mpgRealWorld del vehículo (asume combustible de gasolina)
           const mpg = Number(ruta.vehiculo.mpgRealWorld)
           const margen = Number(ruta.vehiculo.margenConsumo) / 100
           rendimientoEfectivo = +(mpg / (1 + margen)).toFixed(2)
@@ -228,7 +391,6 @@ export class CombustibleService {
           const millasMes = kmMensual / 1.60934
           consumoMes = millasMes / rendimientoEfectivo
         } else {
-          // km_m3: rendimiento es km por m³
           consumoMes = kmMensual / rendimientoEfectivo
         }
         costoTotal = consumoMes * precioPorUnidad
@@ -276,4 +438,30 @@ export class CombustibleService {
       },
     }
   }
+}
+
+// ── Weekly auto-sync (starts when module loads in production) ─────────────
+let syncScheduled = false
+
+export function startWeeklySyncIfNeeded() {
+  if (syncScheduled || process.env.NODE_ENV !== 'production') return
+  syncScheduled = true
+
+  const svc = new CombustibleService()
+
+  // Run once on startup after 5s delay, then weekly
+  setTimeout(() => {
+    svc.syncPrecios().then(r => {
+      console.log(`[combustible] Startup sync: ${r.updated} precios actualizados`)
+      if (r.errors.length) console.warn('[combustible] Errores:', r.errors)
+    }).catch(e => console.warn('[combustible] Sync error:', e.message))
+  }, 5000)
+
+  // Weekly: 7 days in ms
+  setInterval(() => {
+    svc.syncPrecios().then(r => {
+      console.log(`[combustible] Weekly sync: ${r.updated} precios actualizados`)
+      if (r.errors.length) console.warn('[combustible] Errores:', r.errors)
+    }).catch(e => console.warn('[combustible] Weekly sync error:', e.message))
+  }, 7 * 24 * 60 * 60 * 1000)
 }

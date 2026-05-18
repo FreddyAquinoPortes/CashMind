@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
 import { useFmt } from '../../lib/useFmt'
-import type { Deuda, TipoDeuda, TipoPlazo, EstadoDeuda, Persona, PagoDeuda } from '../../lib/types'
+import type { Deuda, TipoDeuda, TipoPlazo, EstadoDeuda, Persona, PagoDeuda, Categoria } from '../../lib/types'
 import { TIPOS_DEUDA, MONEDAS } from '../../lib/constants'
 import { PlusIcon, ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 
@@ -81,12 +81,13 @@ interface DeudaForm {
   personaId: string; concepto: string; tipo: TipoDeuda; montoOriginal: string; saldoActual: string
   moneda: string; fechaInicio: string; fechaFin: string; tasaInteres: string; montoCuota: string
   tipoPlazo: TipoPlazo; numeroCuotas: string; diaCobro: string
-  estado: EstadoDeuda; notas: string
+  estado: EstadoDeuda; notas: string; categoriaId: string; subcategoriaId: string
 }
 const EMPTY: DeudaForm = {
   personaId: '', concepto: '', tipo: 'PERSONAL', montoOriginal: '', saldoActual: '',
   moneda: 'DOP', fechaInicio: new Date().toISOString().slice(0, 10), fechaFin: '',
   tasaInteres: '', montoCuota: '', tipoPlazo: 'FIJO', numeroCuotas: '', diaCobro: '', estado: 'ACTIVA', notas: '',
+  categoriaId: '', subcategoriaId: '',
 }
 
 /** Amortización francesa: cuota fija mensual */
@@ -127,9 +128,9 @@ function addMonthsStr(dateStr: string, n: number): string {
 }
 
 function DeudaFormPanel({
-  initial, isEdit = false, personas, onSubmit, onClose, loading, error,
+  initial, isEdit = false, personas, categorias, onSubmit, onClose, loading, error,
 }: {
-  initial?: DeudaForm; isEdit?: boolean; personas: Persona[]
+  initial?: DeudaForm; isEdit?: boolean; personas: Persona[]; categorias: Categoria[]
   onSubmit(d: DeudaForm, cuotasPagadasAnteriores: number): void
   onClose(): void; loading: boolean; error?: string | null
 }) {
@@ -139,6 +140,11 @@ function DeudaFormPanel({
 
   const set = (k: keyof DeudaForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }))
+
+  const selectedCat = categorias.find(c => c.id === form.categoriaId)
+  const subcats = selectedCat?.subcategorias ?? []
+  const handleCatChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    setForm(p => ({ ...p, categoriaId: e.target.value, subcategoriaId: '' }))
 
   const isFijo = form.tipoPlazo === 'FIJO'
 
@@ -345,6 +351,28 @@ function DeudaFormPanel({
           ))}
         </select>
       </label>
+
+      {/* ── Categoría / Subcategoría (opcional) ─────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1 text-sm text-text-secondary">
+          Categoría <span className="text-xs text-text-muted font-normal">(opcional)</span>
+          <select value={form.categoriaId} onChange={handleCatChange} className="input">
+            <option value="">— Sin categoría —</option>
+            {categorias.map(c => (
+              <option key={c.id} value={c.id}>{c.icono ? `${c.icono} ` : ''}{c.nombre}</option>
+            ))}
+          </select>
+        </label>
+        {form.categoriaId && subcats.length > 0 && (
+          <label className="flex flex-col gap-1 text-sm text-text-secondary">
+            Subcategoría
+            <select value={form.subcategoriaId} onChange={set('subcategoriaId')} className="input">
+              <option value="">— Sin subcategoría —</option>
+              {subcats.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
 
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Notas
@@ -674,6 +702,8 @@ const toPayload = (d: DeudaForm, cuotasPagadasAnteriores = 0) => ({
   diaCobro: d.diaCobro ? parseInt(d.diaCobro) : null,
   estado: d.estado,
   notas: d.notas || null,
+  categoriaId: d.categoriaId || null,
+  subcategoriaId: d.subcategoriaId || null,
   cuotasPagadasAnteriores,
 })
 
@@ -690,6 +720,10 @@ export function DeudasPage() {
     queryKey: ['personas', cid],
     queryFn: async () => (await api.get(`/clientes/${cid}/personas`)).data.data,
     enabled: !!cid,
+  })
+  const { data: categorias = [] } = useQuery<Categoria[]>({
+    queryKey: ['categorias'],
+    queryFn: async () => (await api.get('/categorias')).data.data,
   })
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -839,7 +873,7 @@ export function DeudasPage() {
         <Modal title="Nueva deuda" onClose={closeModal}>
           <DeudaFormPanel
             initial={newFormInitial(modal.prePersonaId)}
-            personas={personas} onClose={closeModal} loading={create.isPending} error={modal.error}
+            personas={personas} categorias={categorias} onClose={closeModal} loading={create.isPending} error={modal.error}
             onSubmit={(d, cuotasPagadas) => create.mutate(toPayload(d, cuotasPagadas))} />
         </Modal>
       )}
@@ -867,9 +901,11 @@ export function DeudasPage() {
                 diaCobro: String(modal.deuda.diaCobro ?? ''),
                 estado: modal.deuda.estado,
                 notas: modal.deuda.notas ?? '',
+                categoriaId: modal.deuda.categoriaId ?? '',
+                subcategoriaId: modal.deuda.subcategoriaId ?? '',
               }
             })()}
-            personas={personas} onClose={closeModal} loading={update.isPending} error={modal.error}
+            personas={personas} categorias={categorias} onClose={closeModal} loading={update.isPending} error={modal.error}
             onSubmit={(d) => update.mutate({ id: modal.deuda.id, d: toPayload(d) })} />
         </Modal>
       )}

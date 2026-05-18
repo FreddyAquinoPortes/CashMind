@@ -20,6 +20,8 @@ export const deudaSchema = z.object({
   numeroCuotas: z.number().int().positive().nullish(),
   diaCobro: z.number().int().min(1).max(31).nullish(),
   notas: z.string().nullish(),
+  categoriaId: z.string().nullish(),
+  subcategoriaId: z.string().nullish(),
   // cuotas already paid before registration (used to skip past events)
   cuotasPagadasAnteriores: z.number().int().min(0).default(0),
 })

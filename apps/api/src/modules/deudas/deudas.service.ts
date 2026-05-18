@@ -99,7 +99,9 @@ export class DeudasService {
         acreedorTexto: d.acreedorTexto ?? null,
         personaId: d.personaId ?? null,
         notas: d.notas ?? null,
-      },
+        categoriaId: d.categoriaId ?? null,
+        subcategoriaId: d.subcategoriaId ?? null,
+      } as any,
     })
 
     // Generate one PAGO_PROGRAMADO event per remaining cuota
@@ -167,9 +169,11 @@ export class DeudasService {
         ...(d.tasaInteres !== undefined && { tasaInteres: d.tasaInteres ?? null }),
         ...(d.numeroCuotas !== undefined && { numeroCuotas: d.numeroCuotas ?? null }),
         ...(d.diaCobro    !== undefined && { diaCobro: d.diaCobro ?? null }),
-        ...(d.notas       !== undefined && { notas: d.notas ?? null }),
-        ...(d.estado      !== undefined && { estado: d.estado }),
-      },
+        ...(d.notas          !== undefined && { notas: d.notas ?? null }),
+        ...(d.estado         !== undefined && { estado: d.estado }),
+        ...('categoriaId'    in d && { categoriaId: d.categoriaId ?? null }),
+        ...('subcategoriaId' in d && { subcategoriaId: d.subcategoriaId ?? null }),
+      } as any,
     })
 
     // ── Sync pending (PLANIFICADO) events ───────────────────────────────────

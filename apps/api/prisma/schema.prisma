@@ -406,27 +406,29 @@ model Transaccion {
 
 // =================== DEUDAS ===================
 model Deuda {
-  id            String            @id @default(cuid())
-  clienteId     String
-  cliente       Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  concepto      String?
-  acreedorTexto String?
-  personaId     String?
-  persona       Persona?          @relation(fields: [personaId], references: [id])
-  tipo          TipoDeuda
-  montoOriginal Decimal           @db.Decimal(15, 2)
-  saldoActual   Decimal           @db.Decimal(15, 2)
-  moneda        String            @default("DOP")
-  fechaInicio   DateTime
-  fechaFin      DateTime?
-  tasaInteres   Decimal?          @db.Decimal(5, 2)
-  tipoPlazo     TipoPlazo
-  numeroCuotas  Int?
-  diaCobro      Int?
-  estado        EstadoDeuda       @default(ACTIVA)
-  notas         String?
-  pagos         PagoDeuda[]
-  createdAt     DateTime          @default(now())
+  id             String            @id @default(cuid())
+  clienteId      String
+  cliente        Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  concepto       String?
+  acreedorTexto  String?
+  personaId      String?
+  persona        Persona?          @relation(fields: [personaId], references: [id])
+  tipo           TipoDeuda
+  montoOriginal  Decimal           @db.Decimal(15, 2)
+  saldoActual    Decimal           @db.Decimal(15, 2)
+  moneda         String            @default("DOP")
+  fechaInicio    DateTime
+  fechaFin       DateTime?
+  tasaInteres    Decimal?          @db.Decimal(5, 2)
+  tipoPlazo      TipoPlazo
+  numeroCuotas   Int?
+  diaCobro       Int?
+  estado         EstadoDeuda       @default(ACTIVA)
+  notas          String?
+  categoriaId    String?
+  subcategoriaId String?
+  pagos          PagoDeuda[]
+  createdAt      DateTime          @default(now())
 
   @@index([clienteId])
 }
@@ -439,7 +441,8 @@ model PagoDeuda {
   fecha         DateTime
   estado        EstadoTransaccion
   notas         String?
-  transaccionId String?           @unique
+  transaccionId String?           // removed @unique — one Transaccion can pay multiple debts
+  @@index([transaccionId])
 }
 
 // =================== EVENTOS ===================
@@ -484,9 +487,29 @@ model Vehiculo {
   mpgRealWorld  Decimal                @db.Decimal(5, 2)
   margenConsumo Decimal                @default(15) @db.Decimal(5, 2)
   fuenteMpg     String?
+  catalogoId    String?
+  catalogo      VehiculoCatalogo?      @relation(fields: [catalogoId], references: [id])
   rutas         Ruta[]
   rendimientos  VehiculoRendimiento[]
   activo        Boolean                @default(true)
+}
+
+model VehiculoCatalogo {
+  id            String     @id @default(cuid())
+  marca         String
+  modelo        String
+  anoDesde      Int
+  anoHasta      Int?
+  motor         String?    // ej. "1.2L NA"
+  transmision   String?    // MANUAL | AUTOMATICO | CVT
+  combustible   String     @default("Regular")
+  mpgCiudad     Decimal    @db.Decimal(5, 2)
+  mpgCarretera  Decimal    @db.Decimal(5, 2)
+  mpgCombinado  Decimal    @db.Decimal(5, 2)
+  fuente        String?
+  vehiculos     Vehiculo[]
+
+  @@index([marca, modelo])
 }
 
 model VehiculoRendimiento {

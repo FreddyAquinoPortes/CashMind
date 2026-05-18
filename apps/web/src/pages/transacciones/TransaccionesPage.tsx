@@ -135,7 +135,7 @@ interface TxFormState {
   notas: string
   // PAGO_DEUDA extras (not sent to API as columns — handled server-side)
   personaId: string
-  deudaId: string
+  deudaIds: string[]   // multi-select: one or more debts to pay
 }
 
 const EMPTY_FORM: TxFormState = {
@@ -150,7 +150,7 @@ const EMPTY_FORM: TxFormState = {
   subcategoriaId: '',
   notas: '',
   personaId: '',
-  deudaId: '',
+  deudaIds: [],
 }
 
 const fmtCOP = (n: string | number) =>
@@ -193,21 +193,31 @@ function TransaccionForm({
 
   // When persona changes, clear deuda selection
   const handlePersonaChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
-    setForm(p => ({ ...p, personaId: e.target.value, deudaId: '', monto: '' }))
+    setForm(p => ({ ...p, personaId: e.target.value, deudaIds: [], monto: '' }))
 
-  // When deuda is selected, auto-fill concepto and suggest saldo as monto
-  const handleDeudaChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const deudaId = e.target.value
-    const deuda = deudas.find(d => d.id === deudaId)
+  // Toggle a debt in/out of the selected set; auto-update monto and concepto
+  const handleDeudaToggle = (deudaId: string) => {
     const persona = personas.find(p => p.id === form.personaId)
-    setForm(prev => ({
-      ...prev,
-      deudaId,
-      monto: deuda ? String(parseFloat(String(deuda.saldoActual)).toFixed(2)) : prev.monto,
-      concepto: deuda && persona
-        ? `Pago deuda — ${persona.displayName}`
-        : prev.concepto,
-    }))
+    setForm(prev => {
+      const already = prev.deudaIds.includes(deudaId)
+      const newIds = already
+        ? prev.deudaIds.filter(id => id !== deudaId)
+        : [...prev.deudaIds, deudaId]
+
+      // Sum saldos of all selected debts
+      const totalSaldo = deudas
+        .filter(d => newIds.includes(d.id))
+        .reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
+
+      return {
+        ...prev,
+        deudaIds: newIds,
+        monto: newIds.length > 0 ? totalSaldo.toFixed(2) : '',
+        concepto: newIds.length > 0 && persona
+          ? `Pago deuda — ${persona.displayName}`
+          : prev.concepto,
+      }
+    })
   }
 
   const selectedCat = categorias.find(c => c.id === form.categoriaId)
@@ -223,8 +233,21 @@ function TransaccionForm({
     d => d.personaId === form.personaId && d.estado === 'ACTIVA'
   )
 
-  const selectedDeuda = deudas.find(d => d.id === form.deudaId)
-  const saldoDeuda = selectedDeuda ? parseFloat(String(selectedDeuda.saldoActual)) : null
+  // Distribution preview: simulate smallest-first payment
+  const distributionPreview = (() => {
+    if (!isPagoDeuda || form.deudaIds.length === 0) return []
+    const monto = parseFloat(form.monto) || 0
+    const selected = deudas
+      .filter(d => form.deudaIds.includes(d.id))
+      .sort((a, b) => parseFloat(String(a.saldoActual)) - parseFloat(String(b.saldoActual)))
+    let remaining = monto
+    return selected.map(d => {
+      const saldo = parseFloat(String(d.saldoActual))
+      const payment = Math.min(remaining, saldo)
+      remaining = Math.max(0, Math.round((remaining - payment) * 100) / 100)
+      return { deuda: d, payment, saldoRest: Math.max(0, saldo - payment) }
+    })
+  })()
 
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(form) }} className="flex flex-col gap-4">
@@ -246,7 +269,7 @@ function TransaccionForm({
         </label>
       </div>
 
-      {/* ── PAGO_DEUDA: persona + deuda selectors ── */}
+      {/* ── PAGO_DEUDA: persona + multi-deuda selectors ── */}
       {isPagoDeuda && (
         <div className="flex flex-col gap-3 bg-orange-500/5 border border-orange-500/20 rounded-xl p-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-orange-400 uppercase tracking-wider">
@@ -269,34 +292,81 @@ function TransaccionForm({
             </select>
           </label>
 
-          {/* Deuda — aparece solo si hay persona seleccionada */}
+          {/* Multi-deuda checkboxes — appears only when persona is selected */}
           {form.personaId && (
-            <label className="flex flex-col gap-1 text-sm text-text-secondary">
-              Deuda a pagar *
-              <select
-                required={isPagoDeuda}
-                value={form.deudaId}
-                onChange={handleDeudaChange}
-                className="input"
-              >
-                <option value="">— Seleccionar deuda —</option>
-                {deudasPersona.length === 0 && (
-                  <option disabled>Sin deudas activas con esta persona</option>
-                )}
-                {deudasPersona.map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.tipo} — Saldo: {fmtCOP(d.saldoActual)}
-                    {d.numeroCuotas ? ` (${d.numeroCuotas} cuotas)` : ''}
-                  </option>
-                ))}
-              </select>
-              {selectedDeuda && (
-                <div className="flex items-center justify-between text-xs mt-1 px-1">
-                  <span className="text-text-muted">Saldo pendiente:</span>
-                  <span className="font-semibold text-danger">{fmtCOP(selectedDeuda.saldoActual)}</span>
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-text-secondary">
+                Deudas a pagar{' '}
+                <span className="text-xs text-text-muted">(selecciona una o más)</span>
+              </p>
+              {deudasPersona.length === 0 && (
+                <p className="text-xs text-text-muted italic">Sin deudas activas con esta persona</p>
+              )}
+              {deudasPersona.map(d => {
+                const checked = form.deudaIds.includes(d.id)
+                return (
+                  <label
+                    key={d.id}
+                    className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors
+                      ${checked
+                        ? 'border-orange-500/50 bg-orange-500/10'
+                        : 'border-border/60 hover:border-orange-500/30'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => handleDeudaToggle(d.id)}
+                      className="accent-orange-500 flex-shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-text-primary truncate">
+                        {d.concepto ?? d.tipo}
+                      </p>
+                      <p className="text-xs text-text-muted">
+                        {d.tipo}{d.numeroCuotas ? ` · ${d.numeroCuotas} cuotas` : ''}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold text-danger tabular-nums flex-shrink-0">
+                      {fmtCOP(d.saldoActual)}
+                    </span>
+                  </label>
+                )
+              })}
+
+              {/* Payment distribution preview */}
+              {distributionPreview.length > 0 && (
+                <div className="mt-1 rounded-lg bg-background/60 border border-border/60 overflow-hidden">
+                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wider px-3 py-2 border-b border-border/60">
+                    Distribución del pago (menor saldo primero)
+                  </p>
+                  {distributionPreview.map(({ deuda, payment, saldoRest }) => (
+                    <div key={deuda.id} className="flex items-center justify-between px-3 py-2 text-xs border-b border-border/40 last:border-0">
+                      <span className="text-text-secondary truncate max-w-[160px]">
+                        {deuda.concepto ?? deuda.tipo}
+                      </span>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <span className="text-success">−{fmtCOP(payment)}</span>
+                        <span className={`${saldoRest <= 0 ? 'text-success font-semibold' : 'text-text-muted'}`}>
+                          {saldoRest <= 0 ? '✓ Saldada' : `Resta: ${fmtCOP(saldoRest)}`}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {(() => {
+                    const totalSaldo = distributionPreview.reduce((s, r) => s + parseFloat(String(r.deuda.saldoActual)), 0)
+                    const totalPago = parseFloat(form.monto) || 0
+                    if (totalPago < totalSaldo) {
+                      return (
+                        <div className="px-3 py-2 bg-amber-500/10 text-xs text-amber-400">
+                          ⚠ Pago parcial: {fmtCOP(Math.max(0, totalSaldo - totalPago))} restante sin cubrir
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
                 </div>
               )}
-            </label>
+            </div>
           )}
         </div>
       )}
@@ -317,14 +387,18 @@ function TransaccionForm({
             required
             min="0.01"
             step="0.01"
-            max={saldoDeuda ?? undefined}
             value={form.monto}
             onChange={set('monto')}
             className="input"
             placeholder="0.00"
           />
-          {saldoDeuda !== null && (
-            <span className="text-xs text-text-muted">Máximo: {fmtCOP(saldoDeuda)}</span>
+          {isPagoDeuda && form.deudaIds.length > 0 && (
+            <span className="text-xs text-text-muted">
+              Saldo total seleccionado: {fmtCOP(
+                deudas.filter(d => form.deudaIds.includes(d.id))
+                  .reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
+              )}
+            </span>
           )}
         </label>
 
@@ -522,9 +596,9 @@ export function TransaccionesPage() {
     qc.invalidateQueries({ queryKey: ['cuentas'] })
   }
 
-  // Build API payload from form — extract deudaId separately
+  // Build API payload from form — extract PAGO_DEUDA fields separately
   const buildPayload = (f: TxFormState) => {
-    const { personaId, deudaId, ...rest } = f
+    const { personaId, deudaIds, ...rest } = f
     return {
       ...rest,
       monto: parseFloat(f.monto),
@@ -534,8 +608,8 @@ export function TransaccionesPage() {
       categoriaId:    f.categoriaId    || null,
       subcategoriaId: f.subcategoriaId || null,
       frecuencia: 'UNICA',
-      // Only send deudaId when tipo=PAGO_DEUDA and a deuda is selected
-      ...(f.tipo === 'PAGO_DEUDA' && deudaId ? { deudaId } : {}),
+      // Send deudaIds array when tipo=PAGO_DEUDA
+      ...(f.tipo === 'PAGO_DEUDA' && deudaIds.length > 0 ? { deudaIds } : {}),
     }
   }
 
@@ -903,7 +977,7 @@ export function TransaccionesPage() {
               subcategoriaId: modal.tx.subcategoriaId ?? '',
               notas: modal.tx.notas ?? '',
               personaId: '',
-              deudaId: '',
+              deudaIds: [],
             }}
             cuentas={cuentas}
             tarjetas={tarjetas}

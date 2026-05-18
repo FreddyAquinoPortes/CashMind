@@ -23,6 +23,8 @@ export const transaccionSchema = z.object({
   pagadoPorId: z.string().nullish(),
   porcentajePropio: z.number().min(0).max(100).default(100),
   tags: z.array(z.string()).default([]),
+  // PAGO_DEUDA: one or multiple debt IDs to pay off (pay smallest first)
+  deudaIds: z.array(z.string()).optional(),
 })
 
 export type TransaccionInput = z.infer<typeof transaccionSchema>
