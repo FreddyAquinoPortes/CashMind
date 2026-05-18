@@ -28,6 +28,7 @@ export interface Transaccion {
   id: string
   clienteId: string
   cuentaId: string | null
+  tarjetaId: string | null
   categoriaId: string | null
   subcategoriaId: string | null
   fecha: string
@@ -39,6 +40,7 @@ export interface Transaccion {
   categoria?: { id: string; nombre: string; color: string | null; icono: string | null } | null
   subcategoria?: { id: string; nombre: string; color: string | null } | null
   cuentaBancaria?: { id: string; alias: string | null; banco: string } | null
+  tarjeta?: { alias: string | null; ultimosCuatro: string } | null
 }
 
 export interface PaginatedResponse<T> {
