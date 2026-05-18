@@ -755,8 +755,20 @@ export function TarjetasPage() {
     onError: (e: Error) => { showToast(e.message, 'error') },
   })
 
-  const totalDeuda = tarjetas.reduce((s, t) => s + parseFloat(String(t.saldoActual)), 0)
   const totalLimite = tarjetas.reduce((s, t) => s + parseFloat(String(t.limite)), 0)
+  // saldoActual < 0 = sobregiro: esa tarjeta no aporta disponible
+  // saldoActual >= 0 = deuda normal: disponible = limite - saldoActual
+  const totalDisponible = tarjetas.reduce((s, t) => {
+    const saldo = parseFloat(String(t.saldoActual))
+    const lim   = parseFloat(String(t.limite))
+    return s + (saldo < 0 ? 0 : Math.max(0, lim - saldo))
+  }, 0)
+  // Deuda: suma sólo lo que se debe (positivo); el sobregiro se muestra por separado en cada tarjeta
+  const totalDeuda = tarjetas.reduce((s, t) => {
+    const saldo = parseFloat(String(t.saldoActual))
+    return s + Math.max(0, saldo)
+  }, 0)
+  const haySobregiro = tarjetas.some(t => parseFloat(String(t.saldoActual)) < 0)
 
   return (
     <div className="flex flex-col gap-6 max-w-3xl mx-auto">
@@ -777,6 +789,7 @@ export function TarjetasPage() {
           <div className="bg-surface border border-border rounded-xl p-4">
             <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Deuda total</p>
             <p className="text-xl font-bold text-danger">{fmt(totalDeuda)}</p>
+            {haySobregiro && <p className="text-xs text-danger/70 mt-0.5">⚠ Incluye tarjeta(s) en sobregiro</p>}
           </div>
           <div className="bg-surface border border-border rounded-xl p-4">
             <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Límite total</p>
@@ -784,7 +797,10 @@ export function TarjetasPage() {
           </div>
           <div className="bg-surface border border-border rounded-xl p-4">
             <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Disponible</p>
-            <p className="text-xl font-bold text-success">{fmt(Math.max(0, totalLimite - totalDeuda))}</p>
+            <p className={`text-xl font-bold ${totalDisponible > 0 ? 'text-success' : 'text-danger'}`}>
+              {fmt(totalDisponible)}
+            </p>
+            {haySobregiro && <p className="text-xs text-text-muted mt-0.5">Tarjetas en sobregiro: RD$0 disp.</p>}
           </div>
         </div>
       )}
