@@ -50,7 +50,14 @@ const ESTADO_COLORS: Record<EstadoTransaccion, string> = {
   PROGRAMADO: 'bg-purple-500/10 text-purple-400',
 }
 
-const TODAY = new Date().toISOString().slice(0, 10)
+// Use LOCAL date (not UTC) so the default date in the form matches the user's calendar
+const toLocalDateStr = (d = new Date()) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+const TODAY = toLocalDateStr()
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function formatDate(iso: string): string {
@@ -742,7 +749,8 @@ export function TransaccionesPage() {
     return {
       ...rest,
       monto: parseFloat(f.monto),
-      fecha: f.fecha ? new Date(f.fecha + 'T00:00:00').toISOString() : new Date().toISOString(),
+      // Use noon UTC so the calendar date never shifts ±1 day due to timezone offsets
+      fecha: f.fecha ? `${f.fecha}T12:00:00.000Z` : new Date().toISOString(),
       cuentaId:       f.cuentaId       || null,
       tarjetaId:      f.tarjetaId      || null,
       categoriaId:    f.categoriaId    || null,

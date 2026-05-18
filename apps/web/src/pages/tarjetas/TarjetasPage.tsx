@@ -11,6 +11,14 @@ const FRANQ_COLORS: Record<string, string> = {
   VISA: '#1a1f71', MASTERCARD: '#eb001b', AMEX: '#007bc1', DISCOVER: '#ff6600',
 }
 
+// Devuelve YYYY-MM-DD en hora local (evita el desfase UTC)
+const toLocalDateStr = (d = new Date()) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 
 function calcMontoCuota(monto: number, tasaInteres: number, numeroCuotas: number): number {
   if (!monto || !numeroCuotas) return 0
@@ -269,7 +277,7 @@ function NuevoExtraCreditoModal({
     enabled: !!cid,
   })
 
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = toLocalDateStr()
   const [form, setForm] = useState<ExtraCreditoForm>({
     descripcion: '',
     montoOriginal: '',
@@ -345,7 +353,7 @@ function NuevoExtraCreditoModal({
         montoOriginal: monto,
         tasaInteres: tasa,
         numeroCuotas: cuotas,
-        fechaInicio: form.fechaInicio,
+        fechaInicio: form.fechaInicio ? `${form.fechaInicio}T12:00:00.000Z` : undefined,
         diaPago: parseInt(form.diaPago),
         moneda: form.moneda,
         categoriaId: form.categoriaId || null,
@@ -478,7 +486,7 @@ function RegistrarPagoModal({
     enabled: !!cid,
   })
 
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = toLocalDateStr()
   const [monto, setMonto] = useState(parseFloat(String(ec.montoCuota)).toFixed(2))
   const [fecha, setFecha] = useState(hoy)
   const [notas, setNotas] = useState('')
@@ -493,7 +501,7 @@ function RegistrarPagoModal({
     try {
       await api.post(`/extracredito/${ec.id}/pago`, {
         monto: parseFloat(monto),
-        fecha,
+        fecha: `${fecha}T12:00:00.000Z`,
         notas: notas || null,
         cuentaId: cuentaId || null,
       })
