@@ -1274,39 +1274,117 @@ function TabPrecios() {
         const tipo = modal.tipo
         const cfg = TIPOS_CONFIG[tipo] ?? { color: 'text-text-primary', emoji: '⛽', unidad: 'gal' }
         const historial = historialPorTipo(tipo)
+
+        // "Fijar" = create a new price record with that value dated to today
+        const fijarPrecio = (p: Precio) => {
+          create.mutate(
+            { tipo: p.tipo, precio: Number(p.precio), fecha: new Date().toISOString(), fuente: p.fuente ?? undefined },
+            {
+              onSuccess: () => {
+                setModal(null)
+                showToast(`📌 ${p.tipo} fijado en DOP ${fmtDec(Number(p.precio), 2)}`)
+              },
+            }
+          )
+        }
+
+        // Which record is currently the latest (first in sorted list)
+        const latestId = historial[0]?.id
+
         return (
           <Modal title={`${cfg.emoji} Historial · ${tipo}`} onClose={() => setModal(null)}>
             {historial.length === 0 ? (
               <p className="text-center text-text-muted text-sm py-8">Sin registros para {tipo}</p>
             ) : (
               <div className="flex flex-col gap-1">
-                <table className="w-full text-sm">
-                  <thead><tr className="border-b border-border text-xs text-text-muted uppercase">
-                    <th className="py-2 text-left">Fecha</th>
-                    <th className="py-2 text-right">Precio</th>
-                    <th className="py-2 text-left pl-4">Fuente</th>
-                  </tr></thead>
-                  <tbody>
-                    {historial.map((p, i) => (
-                      <tr key={p.id} className={i % 2 === 0 ? '' : 'bg-surface-elevated/30'}>
-                        <td className="py-2 text-text-muted">{new Date(p.fecha).toLocaleDateString('es-DO')}</td>
-                        <td className={`py-2 text-right font-mono font-bold ${cfg.color}`}>DOP {fmtDec(Number(p.precio), 2)}</td>
-                        <td className="py-2 text-text-muted pl-4">{p.fuente ?? '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <p className="text-xs text-text-muted mb-2">
+                  Haz clic en <strong className="text-text-secondary">📌 Fijar</strong> para usar ese precio como el activo (se registra con fecha de hoy).
+                </p>
+                <div className="flex flex-col divide-y divide-border/50 rounded-xl border border-border overflow-hidden">
+                  {historial.map(p => {
+                    const isLatest = p.id === latestId
+                    return (
+                      <div key={p.id}
+                        className={`flex items-center gap-3 px-4 py-3 transition-colors
+                          ${isLatest ? 'bg-primary/5' : 'hover:bg-surface-elevated/60'}`}
+                      >
+                        {/* Active indicator */}
+                        <div className="flex-shrink-0 w-2">
+                          {isLatest && <div className="w-2 h-2 rounded-full bg-primary" title="Precio activo" />}
+                        </div>
+
+                        {/* Date */}
+                        <span className="text-sm text-text-muted w-20 flex-shrink-0 tabular-nums">
+                          {new Date(p.fecha).toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        </span>
+
+                        {/* Price */}
+                        <span className={`font-mono font-bold text-base flex-1 ${cfg.color}`}>
+                          DOP {fmtDec(Number(p.precio), 2)}
+                        </span>
+
+                        {/* Source */}
+                        <span className="text-xs text-text-muted truncate max-w-[120px]">
+                          {p.fuente ?? '—'}
+                        </span>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {!isLatest && (
+                            <button
+                              onClick={() => fijarPrecio(p)}
+                              disabled={create.isPending}
+                              className="text-xs px-2.5 py-1 rounded-lg border border-primary/40 text-primary hover:bg-primary/10 transition-colors font-medium disabled:opacity-40"
+                              title="Usar este precio como el activo (fecha hoy)"
+                            >
+                              📌 Fijar
+                            </button>
+                          )}
+                          {isLatest && (
+                            <span className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary font-medium">
+                              ✓ Activo
+                            </span>
+                          )}
+                          <button
+                            onClick={() => { setModal({ type: 'edit', p }); }}
+                            className="text-xs text-text-muted hover:text-primary transition-colors p-1"
+                            title="Editar"
+                          >✏</button>
+                          <button
+                            onClick={() => del.mutate(p.id)}
+                            className="text-xs text-text-muted hover:text-danger transition-colors p-1"
+                            title="Eliminar"
+                          >🗑</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Stats */}
                 {historial.length > 1 && (() => {
                   const max = Math.max(...historial.map(p => Number(p.precio)))
                   const min = Math.min(...historial.map(p => Number(p.precio)))
                   const avg = historial.reduce((s, p) => s + Number(p.precio), 0) / historial.length
                   return (
                     <div className="mt-4 grid grid-cols-3 gap-2 border-t border-border pt-4">
-                      {[{ label: 'Mínimo', val: min, color: 'text-success' }, { label: 'Promedio', val: avg, color: 'text-warning' }, { label: 'Máximo', val: max, color: 'text-danger' }].map(s => (
-                        <div key={s.label} className="text-center bg-surface-elevated rounded-lg p-2">
+                      {[
+                        { label: 'Mínimo',   val: min, color: 'text-success' },
+                        { label: 'Promedio', val: avg, color: 'text-warning' },
+                        { label: 'Máximo',   val: max, color: 'text-danger'  },
+                      ].map(s => (
+                        <button
+                          key={s.label}
+                          type="button"
+                          onClick={() => fijarPrecio({ ...historial[0]!, precio: s.val, fuente: 'manual' })}
+                          disabled={create.isPending}
+                          className="text-center bg-surface-elevated hover:bg-surface-elevated/80 border border-border/50 hover:border-primary/30 rounded-lg p-2.5 transition-colors group disabled:opacity-40"
+                          title={`Fijar precio en DOP ${fmtDec(s.val, 2)}`}
+                        >
                           <p className="text-xs text-text-muted">{s.label}</p>
                           <p className={`font-bold text-sm ${s.color}`}>DOP {fmtDec(s.val, 2)}</p>
-                        </div>
+                          <p className="text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity mt-0.5">📌 Fijar</p>
+                        </button>
                       ))}
                     </div>
                   )
