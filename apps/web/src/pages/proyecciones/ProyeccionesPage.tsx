@@ -4,6 +4,7 @@ import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
 import { useFmt } from '../../lib/useFmt'
 import type { Categoria } from '../../lib/types'
+import { type SavedPeriod, BUILT_IN_PERIODS, loadSavedPeriods, applySavedPeriod, isMonthAware } from '../../lib/periods'
 import {
   PlusIcon, PencilSquareIcon, TrashIcon, ArrowRightCircleIcon,
   ChevronDownIcon, ChevronUpIcon, ExclamationTriangleIcon,
@@ -166,6 +167,10 @@ export function ProyeccionesPage() {
   const [periodKey, setPeriodKey] = useState<PeriodKey>('90d')
   const [customDesde, setCustomDesde] = useState(toDateStr(today()))
   const [customHasta, setCustomHasta] = useState(toDateStr(addDays(today(), 90)))
+  const [savedPeriods] = useState<SavedPeriod[]>(() => loadSavedPeriods())
+  const [activeSavedPeriod, setActiveSavedPeriod] = useState<SavedPeriod | null>(null)
+  const [savedPeriodAnchor, setSavedPeriodAnchor] = useState<{ year: number; month: number } | null>(null)
+  const [savedPeriodActive, setSavedPeriodActive] = useState<string | null>(null)
 
   const { desde, hasta } = useMemo(() => {
     if (periodKey === 'custom') return { desde: customDesde, hasta: customHasta }
@@ -175,6 +180,18 @@ export function ProyeccionesPage() {
       hasta: toDateStr(addDays(today(), preset.days!)),
     }
   }, [periodKey, customDesde, customHasta])
+
+  const handleApplySaved = (p: SavedPeriod) => {
+    const { start, end } = applySavedPeriod(p)
+    setSavedPeriodActive(p.id)
+    setPeriodKey('custom')
+    setCustomDesde(toDateStr(start))
+    setCustomHasta(toDateStr(end))
+    if (isMonthAware(p)) {
+      setActiveSavedPeriod(p)
+      setSavedPeriodAnchor({ year: start.getFullYear(), month: start.getMonth() })
+    }
+  }
 
   // ── Data fetching ─────────────────────────────────────────────────────
   const { data: resumen, isLoading, isError, refetch } = useQuery<ResumenData>({
@@ -344,9 +361,9 @@ export function ProyeccionesPage() {
           {PERIODS.map(p => (
             <button
               key={p.key}
-              onClick={() => setPeriodKey(p.key)}
+              onClick={() => { setPeriodKey(p.key); setSavedPeriodActive(null) }}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                periodKey === p.key
+                periodKey === p.key && !savedPeriodActive
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-surface-elevated text-text-secondary hover:text-text-primary'
               }`}
@@ -355,6 +372,24 @@ export function ProyeccionesPage() {
             </button>
           ))}
         </div>
+        {([...BUILT_IN_PERIODS, ...savedPeriods]).length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-1 border-t border-border/40">
+            <span className="text-xs text-text-muted self-center pr-1">Guardados:</span>
+            {[...BUILT_IN_PERIODS, ...savedPeriods].map(p => (
+              <button
+                key={p.id}
+                onClick={() => handleApplySaved(p)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  savedPeriodActive === p.id
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-surface-elevated text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                {p.nombre}
+              </button>
+            ))}
+          </div>
+        )}
         {periodKey === 'custom' && (
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2 text-sm">

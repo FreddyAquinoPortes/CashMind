@@ -9,6 +9,7 @@ import {
   ChevronDownIcon, BookmarkIcon,
 } from '@heroicons/react/24/outline'
 import { Icon } from '@iconify/react'
+import { type SavedPeriod, LS_KEY, BUILT_IN_PERIODS, loadSavedPeriods, persistSavedPeriods, applySavedPeriod, isMonthAware } from '../../lib/periods'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const TIPO_CONFIG: Record<TipoEvento, { label: string; color: string; dot: string; icon: string }> = {
@@ -48,39 +49,6 @@ const fmtDate = (iso: string) => {
 
 // ── Period types ───────────────────────────────────────────────────────────
 type PeriodType = 'dia' | 'semana' | 'mes' | 'custom'
-
-interface SavedPeriod {
-  id: string
-  nombre: string
-  durationDays: number
-  anchorDay: number
-}
-
-const LS_KEY = 'cashmind_saved_periods'
-
-const BUILT_IN_PERIODS: SavedPeriod[] = [
-  { id: 'bimestral',     nombre: 'Bimestral',     durationDays: 60,  anchorDay: 1 },
-  { id: 'trimestral',    nombre: 'Trimestral',     durationDays: 90,  anchorDay: 1 },
-  { id: 'cuatrimestral', nombre: 'Cuatrimestral',  durationDays: 120, anchorDay: 1 },
-  { id: 'semestral',     nombre: 'Semestral',      durationDays: 180, anchorDay: 1 },
-  { id: 'anual',         nombre: 'Anual',          durationDays: 365, anchorDay: 1 },
-]
-
-function loadSavedPeriods(): SavedPeriod[] {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') } catch { return [] }
-}
-function persistSavedPeriods(periods: SavedPeriod[]) {
-  localStorage.setItem(LS_KEY, JSON.stringify(periods))
-}
-
-function applyBuiltInPeriod(p: SavedPeriod): { start: Date; end: Date } {
-  const today = new Date()
-  let start = new Date(today.getFullYear(), today.getMonth(), p.anchorDay)
-  if (start > today) start = new Date(today.getFullYear(), today.getMonth() - 1, p.anchorDay)
-  const end = new Date(start)
-  end.setDate(end.getDate() + p.durationDays - 1)
-  return { start, end }
-}
 
 function getWeekStart(d: Date): Date {
   const s = new Date(d)
@@ -712,6 +680,8 @@ function CalendarGrid({ year, month, eventos, selectedDay, onSelectDay, rangeSta
           const isToday   = isCurrentMonth && day === today.getDate()
           const isSelected = day === selectedDay
           const inRange   = rangeStart && rangeEnd && dateStr >= rangeStart && dateStr <= rangeEnd
+          const isRangeStart = rangeStart === dateStr
+          const isRangeEnd   = rangeEnd   === dateStr
           const dayEvents = dayMap.get(day) ?? []
           const hasExec   = dayEvents.some(e => e.estado === 'PLANIFICADO' && (e.tipo === 'PAGO_PROGRAMADO' || e.tipo === 'NOMINA'))
 
@@ -721,10 +691,20 @@ function CalendarGrid({ year, month, eventos, selectedDay, onSelectDay, rangeSta
               type="button"
               onClick={() => onSelectDay(isSelected ? null : day)}
               className={`min-h-[72px] border-b border-r border-border/40 p-1.5 text-left flex flex-col transition-colors
-                ${isSelected ? 'bg-primary/10' : inRange ? 'bg-primary/5' : 'hover:bg-white/5'}`}
+                ${isSelected
+                  ? 'bg-primary/15'
+                  : isRangeStart || isRangeEnd
+                    ? 'bg-primary/25 ring-1 ring-inset ring-primary/40'
+                    : inRange
+                      ? 'bg-primary/[0.1]'
+                      : 'hover:bg-white/5'
+                }`}
             >
               <span className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full mb-1
-                ${isToday ? 'bg-primary text-white' : isSelected ? 'text-primary' : 'text-text-secondary'}`}>
+                ${isToday ? 'bg-primary text-white'
+                  : isSelected ? 'text-primary'
+                  : isRangeStart || isRangeEnd ? 'bg-primary/30 text-primary font-extrabold'
+                  : 'text-text-secondary'}`}>
                 {day}
               </span>
 
@@ -1026,6 +1006,8 @@ export function EventosPage() {
   const [customOpen,  setCustomOpen]  = useState(false)
   const [toast,       setToast]       = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [savedPeriods, setSavedPeriods] = useState<SavedPeriod[]>(loadSavedPeriods)
+  const [activeSavedPeriod, setActiveSavedPeriod] = useState<SavedPeriod | null>(null)
+  const [savedPeriodAnchor, setSavedPeriodAnchor] = useState<{ year: number; month: number } | null>(null)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type }); setTimeout(() => setToast(null), 3200)
@@ -1090,6 +1072,7 @@ export function EventosPage() {
 
   // ── Period selection handlers ─────────────────────────────────────────────
   const selectPeriod = (t: 'dia' | 'semana' | 'mes') => {
+    setActiveSavedPeriod(null); setSavedPeriodAnchor(null)
     const now = new Date(); now.setHours(0, 0, 0, 0)
     if (t === 'dia') {
       setPeriodType('dia'); setPeriodStart(now); setPeriodEnd(now)
@@ -1111,18 +1094,26 @@ export function EventosPage() {
     setPeriodType('custom'); setPeriodStart(start); setPeriodEnd(end)
     setSelectedDay(null); setSelectedDayStr(null)
     setCustomOpen(false)
+    setActiveSavedPeriod(null); setSavedPeriodAnchor(null)
   }
 
   const applySaved = (p: SavedPeriod) => {
-    const { start, end } = applyBuiltInPeriod(p)
+    const { start, end } = applySavedPeriod(p)
     setPeriodType('custom'); setPeriodStart(start); setPeriodEnd(end)
     setSelectedDay(null); setSelectedDayStr(null)
+    if (isMonthAware(p)) {
+      setActiveSavedPeriod(p)
+      setSavedPeriodAnchor({ year: start.getFullYear(), month: start.getMonth() })
+    } else {
+      setActiveSavedPeriod(null); setSavedPeriodAnchor(null)
+    }
   }
 
   const saveCustomPeriod = (nombre: string, start: Date, end: Date) => {
-    const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1
-    const anchorDay = start.getDate()
-    const np: SavedPeriod = { id: `custom_${Date.now()}`, nombre, durationDays: days, anchorDay }
+    const startDay  = start.getDate()
+    const endDay    = end.getDate()
+    const monthSpan = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth())
+    const np: SavedPeriod = { id: `custom_${Date.now()}`, nombre, startDay, endDay, monthSpan }
     const updated = [...savedPeriods, np]
     setSavedPeriods(updated)
     persistSavedPeriods(updated)
@@ -1152,7 +1143,18 @@ export function EventosPage() {
       const me = new Date(d.getFullYear(), d.getMonth() + 1, 0)
       setPeriodStart(ms); setPeriodEnd(me)
       setSelectedDay(null); setSelectedDayStr(null)
+    } else if (activeSavedPeriod && savedPeriodAnchor && isMonthAware(activeSavedPeriod)) {
+      // Month-aware navigation: advance the anchor month by ±1
+      let newM = savedPeriodAnchor.month + dir
+      let newY = savedPeriodAnchor.year
+      if (newM < 0)  { newM = 11; newY-- }
+      if (newM > 11) { newM = 0;  newY++ }
+      const { start, end } = applySavedPeriod(activeSavedPeriod, newY, newM)
+      setSavedPeriodAnchor({ year: newY, month: newM })
+      setPeriodStart(start); setPeriodEnd(end)
+      setSelectedDay(null);  setSelectedDayStr(null)
     } else {
+      // Fixed-duration navigation (legacy or plain custom ranges)
       const dur = Math.round((periodEnd.getTime() - periodStart.getTime()) / 86400000)
       const ns = new Date(periodStart); ns.setDate(ns.getDate() + dir * (dur + 1))
       const ne = new Date(ns); ne.setDate(ne.getDate() + dur)
