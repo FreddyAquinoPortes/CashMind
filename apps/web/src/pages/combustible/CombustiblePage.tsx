@@ -1275,10 +1275,13 @@ function TabPrecios() {
         const cfg = TIPOS_CONFIG[tipo] ?? { color: 'text-text-primary', emoji: '⛽', unidad: 'gal' }
         const historial = historialPorTipo(tipo)
 
-        // "Fijar" = create a new price record with that value dated to today
+        // "Fijar" = create a new price record with that value strictly after the current latest
         const fijarPrecio = (p: Precio) => {
+          // Guarantee the new record sorts AFTER the current latest (in case latest has a future date)
+          const latestMs = historial[0] ? new Date(historial[0].fecha).getTime() : 0
+          const fechaFijar = new Date(Math.max(Date.now(), latestMs + 1000)).toISOString()
           create.mutate(
-            { tipo: p.tipo, precio: Number(p.precio), fecha: new Date().toISOString(), fuente: p.fuente ?? undefined },
+            { tipo: p.tipo, precio: Number(p.precio), fecha: fechaFijar, fuente: p.fuente ?? undefined },
             {
               onSuccess: () => {
                 inv()
