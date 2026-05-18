@@ -15,6 +15,7 @@ import { eventosRouter }      from './modules/eventos/eventos.router'
 import { dashboardRouter }    from './modules/dashboard/dashboard.router'
 import { combustibleRouter }  from './modules/combustible/combustible.router'
 import { presupuestosRouter } from './modules/presupuestos/presupuestos.router'
+import { adminRouter }        from './modules/admin/admin.router'  // TEMP — remove after rollback
 import { errorHandler }       from './middleware/error.middleware'
 import { requestLogger }      from './middleware/logger.middleware'
 
@@ -49,6 +50,7 @@ export function createApp() {
   app.use('/api', dashboardRouter)
   app.use('/api', combustibleRouter)
   app.use('/api', presupuestosRouter)
+  app.use('/api', adminRouter)  // TEMP — remove after rollback
 
   app.use(errorHandler)
 
