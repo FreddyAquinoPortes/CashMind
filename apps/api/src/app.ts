@@ -14,8 +14,9 @@ import { deudasRouter }       from './modules/deudas/deudas.router'
 import { eventosRouter }      from './modules/eventos/eventos.router'
 import { dashboardRouter }    from './modules/dashboard/dashboard.router'
 import { combustibleRouter }  from './modules/combustible/combustible.router'
-import { presupuestosRouter } from './modules/presupuestos/presupuestos.router'
-import { errorHandler }       from './middleware/error.middleware'
+import { presupuestosRouter }  from './modules/presupuestos/presupuestos.router'
+import { proyeccionesRouter }  from './modules/proyecciones/proyecciones.router'
+import { errorHandler }        from './middleware/error.middleware'
 import { requestLogger }      from './middleware/logger.middleware'
 
 export function createApp() {
@@ -49,6 +50,7 @@ export function createApp() {
   app.use('/api', dashboardRouter)
   app.use('/api', combustibleRouter)
   app.use('/api', presupuestosRouter)
+  app.use('/api', proyeccionesRouter)
 
   app.use(errorHandler)
 

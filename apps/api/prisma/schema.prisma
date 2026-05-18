@@ -209,6 +209,7 @@ model Cliente {
   reglasCategorizacion ReglaCategorizacion[]
   notificaciones       Notificacion[]
   webhooks             Webhook[]
+  proyeccionItems      ProyeccionItem[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 }
@@ -678,4 +679,24 @@ model Webhook {
   secret    String
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+// =================== PROYECCIONES ===================
+model ProyeccionItem {
+  id            String    @id @default(cuid())
+  clienteId     String
+  cliente       Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nombre        String
+  monto         Decimal   @db.Decimal(15, 2)
+  tipo          String    @default("GASTO")   // GASTO | INGRESO
+  moneda        String    @default("DOP")
+  // null = one-time within the projection period
+  // DIARIA | SEMANAL | MENSUAL | ANUAL
+  periodicidad  String?
+  categoriaId   String?
+  notas         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([clienteId])
 }

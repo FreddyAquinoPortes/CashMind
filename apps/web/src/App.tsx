@@ -16,8 +16,9 @@ import { PersonasPage } from './pages/personas/PersonasPage'
 import { DeudasPage } from './pages/deudas/DeudasPage'
 import { EventosPage } from './pages/eventos/EventosPage'
 import { CombustiblePage } from './pages/combustible/CombustiblePage'
-import { PresupuestosPage } from './pages/presupuestos/PresupuestosPage'
-import { AjustesPage } from './pages/ajustes/AjustesPage'
+import { PresupuestosPage }  from './pages/presupuestos/PresupuestosPage'
+import { ProyeccionesPage }  from './pages/proyecciones/ProyeccionesPage'
+import { AjustesPage }       from './pages/ajustes/AjustesPage'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
 
@@ -76,7 +77,7 @@ export default function App() {
           <Route path="eventos"       element={<EventosPage />} />
           <Route path="combustible"   element={<CombustiblePage />} />
           <Route path="presupuestos"  element={<PresupuestosPage />} />
-          <Route path="proyecciones"  element={<ComingSoon title="Proyecciones" />} />
+          <Route path="proyecciones"  element={<ProyeccionesPage />} />
           <Route path="reportes"      element={<ComingSoon title="Reportes" />} />
           <Route path="importacion"   element={<ComingSoon title="Importación" />} />
           <Route path="ajustes"       element={<AjustesPage />} />
