@@ -461,6 +461,7 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
   const [f, setF] = useState<RForm>(initial ?? EMPTY_R)
   const [showMap, setShowMap] = useState(false)
   const mapSectionRef = useRef<HTMLDivElement>(null)
+  const eventoSectionRef = useRef<HTMLDivElement>(null)
   const upd = (k: keyof RForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(p => ({ ...p, [k]: e.target.value }))
 
   useEffect(() => {
@@ -516,14 +517,26 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
           </select>
         </div>
       </div>
-      {/* Aviso si el vehículo no tiene rendimiento registrado para el combustible elegido */}
+      {/* Aviso de rendimiento del vehículo */}
       {f.vehiculoId && (() => {
         const v = vehiculos.find(v => v.id === f.vehiculoId)
         const tieneRend = v?.rendimientos?.some(r => r.tipoCombustible === f.tipoCombustible)
-        if (!tieneRend && f.tipoCombustible !== 'Regular') {
+        const mpgBase = v ? Number(v.mpgRealWorld) : 0
+        if (!tieneRend && mpgBase <= 0) {
+          // Sin rendimiento específico NI mpg base — cálculo imposible
           return (
             <p className="text-xs bg-warning/10 border border-warning/30 text-warning rounded-lg px-3 py-2">
-              ⚠ Este vehículo no tiene rendimiento registrado para <strong>{f.tipoCombustible}</strong>. Se usará el MPG base como fallback. Agrégalo en la pestaña <strong>Vehículos</strong>.
+              ⚠ Este vehículo no tiene MPG registrado. Agrégalo en la pestaña <strong>Vehículos</strong> para ver el costo estimado.
+            </p>
+          )
+        }
+        if (!tieneRend && mpgBase > 0) {
+          // Usando mpgRealWorld como fallback — solo info, no advertencia
+          const margen = v ? Number(v.margenConsumo) : 0
+          const mpgEf = +(mpgBase / (1 + margen / 100)).toFixed(1)
+          return (
+            <p className="text-xs bg-primary/5 border border-primary/20 text-text-muted rounded-lg px-3 py-2">
+              ℹ Usando MPG base del vehículo: <strong className="text-text-secondary">{mpgEf} mpg efectivo</strong> · Para mayor precisión, agrega el rendimiento por combustible en <strong>Vehículos</strong>.
             </p>
           )
         }
@@ -636,10 +649,14 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
       )}
 
       {/* ── Evento de gasto programado ── */}
-      <div className="border-t border-border/60 pt-4">
+      <div ref={eventoSectionRef} className="border-t border-border/60 pt-4">
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input type="checkbox" checked={f.crearEvento}
-            onChange={e => setF(p => ({ ...p, crearEvento: e.target.checked }))}
+            onChange={e => {
+              const checked = e.target.checked
+              setF(p => ({ ...p, crearEvento: checked }))
+              if (checked) setTimeout(() => eventoSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+            }}
             className="w-4 h-4 rounded accent-primary" />
           <span className="text-sm font-medium text-text-primary">📅 Crear evento de gasto programado</span>
         </label>
