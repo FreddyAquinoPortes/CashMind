@@ -20,6 +20,14 @@ function personaDisplayName(p: { nombre: string; apellido: string | null; tipo: 
   return p.tipo === 'persona' && p.apellido ? `${p.nombre} ${p.apellido}` : p.nombre
 }
 
+// Devuelve YYYY-MM-DD en hora local (evita el desfase UTC)
+const toLocalDateStr = (d = new Date()) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 // ── Toast ──────────────────────────────────────────────────────────────────
 function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
   return (
@@ -85,7 +93,7 @@ interface DeudaForm {
 }
 const EMPTY: DeudaForm = {
   personaId: '', concepto: '', tipo: 'PERSONAL', montoOriginal: '', saldoActual: '',
-  moneda: 'DOP', fechaInicio: new Date().toISOString().slice(0, 10), fechaFin: '',
+  moneda: 'DOP', fechaInicio: toLocalDateStr(), fechaFin: '',
   tasaInteres: '', montoCuota: '', tipoPlazo: 'FIJO', numeroCuotas: '', diaCobro: '', estado: 'ACTIVA', notas: '',
   categoriaId: '', subcategoriaId: '',
 }
@@ -124,7 +132,7 @@ function addMonthsStr(dateStr: string, n: number): string {
   d.setMonth(d.getMonth() + n)
   const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
   if (d.getDate() > lastDay) d.setDate(lastDay)
-  return d.toISOString().slice(0, 10)
+  return toLocalDateStr(d)
 }
 
 function DeudaFormPanel({
@@ -694,8 +702,8 @@ const toPayload = (d: DeudaForm, cuotasPagadasAnteriores = 0) => ({
   montoOriginal: parseFloat(d.montoOriginal),
   saldoActual: d.saldoActual ? parseFloat(d.saldoActual) : undefined,
   moneda: d.moneda,
-  fechaInicio: d.fechaInicio,
-  fechaFin: d.fechaFin || null,
+  fechaInicio: d.fechaInicio ? `${d.fechaInicio}T12:00:00.000Z` : undefined,
+  fechaFin: d.fechaFin ? `${d.fechaFin}T12:00:00.000Z` : null,
   tasaInteres: d.tasaInteres ? parseFloat(d.tasaInteres) : null,
   tipoPlazo: d.tipoPlazo,
   numeroCuotas: d.numeroCuotas ? parseInt(d.numeroCuotas) : null,

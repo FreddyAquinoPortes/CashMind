@@ -7,6 +7,14 @@ import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
 import { useFmt } from '../../lib/useFmt'
 
+// Devuelve YYYY-MM-DD en hora local (evita el desfase UTC)
+const toLocalDateStr = (d = new Date()) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 // Fix Leaflet marker icons en Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -1384,7 +1392,7 @@ const TIPOS_CONFIG: Record<string, { color: string; emoji: string; unidad: strin
 const TIPOS_LISTA = Object.keys(TIPOS_CONFIG)
 
 interface PrecioForm { tipo: string; precio: string; fecha: string; fuente: string }
-const emptyForm = (): PrecioForm => ({ tipo: 'Gasolina Regular', precio: '', fecha: new Date().toISOString().slice(0, 10), fuente: '' })
+const emptyForm = (): PrecioForm => ({ tipo: 'Gasolina Regular', precio: '', fecha: toLocalDateStr(), fuente: '' })
 
 function PrecioFormPanel({ initial, onSave, onCancel, loading }: {
   initial?: PrecioForm; onSave(f: PrecioForm): void; onCancel(): void; loading: boolean
@@ -1474,7 +1482,7 @@ function TabPrecios() {
 
   const toPayload = (f: PrecioForm) => ({
     tipo: f.tipo, precio: Number(f.precio),
-    fecha: new Date(f.fecha).toISOString(),
+    fecha: `${f.fecha}T12:00:00.000Z`,
     fuente: f.fuente || undefined,
   })
 

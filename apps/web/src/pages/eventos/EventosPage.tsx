@@ -309,7 +309,7 @@ function DatePicker({ value, onChange }: { value: string; onChange(v: string): v
     if (value) { const d = toLocal(value); setViewYear(d.getFullYear()); setViewMonth(d.getMonth()) }
   }, [value])
 
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = toDateStr(new Date())
   const firstDow    = new Date(viewYear, viewMonth, 1).getDay()
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
   const cells: (number | null)[] = [
@@ -484,7 +484,7 @@ function CustomPeriodModal({ onClose, onApply, onSave }: {
   onApply(start: Date, end: Date): void
   onSave(nombre: string, start: Date, end: Date): void
 }) {
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = toDateStr(new Date())
   const [startStr, setStartStr] = useState(todayStr)
   const [endStr,   setEndStr]   = useState(todayStr)
   const [saveName, setSaveName] = useState('')
@@ -742,7 +742,7 @@ interface EventoForm {
   categoriaId: string; subcategoriaId: string; notas: string
 }
 const EMPTY_FORM: EventoForm = {
-  nombre: '', tipo: 'PAGO_PROGRAMADO', fecha: new Date().toISOString().slice(0, 10),
+  nombre: '', tipo: 'PAGO_PROGRAMADO', fecha: toDateStr(new Date()),
   recurrente: false, tipoRecurrencia: '', presupuestoEstimado: '', moneda: 'DOP',
   estado: 'PLANIFICADO', personaId: '', prioridad: '3', categoriaId: '', subcategoriaId: '', notas: '',
 }
@@ -974,7 +974,7 @@ type ModalState =
 const toPayload = (f: EventoForm) => ({
   nombre:              f.nombre,
   tipo:                f.tipo,
-  fecha:               f.fecha,
+  fecha:               f.fecha ? `${f.fecha}T12:00:00.000Z` : new Date().toISOString(),
   recurrente:          f.recurrente,
   tipoRecurrencia:     f.recurrente && f.tipoRecurrencia ? f.tipoRecurrencia : null,
   presupuestoEstimado: f.presupuestoEstimado ? parseFloat(f.presupuestoEstimado) : 0,

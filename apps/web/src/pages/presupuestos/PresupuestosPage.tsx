@@ -11,6 +11,14 @@ import { useFmt } from '../../lib/useFmt'
 
 const FmtCtx = createContext<(n: number, isTotal?: boolean) => string>(() => '')
 
+// Devuelve YYYY-MM-DD en hora local (evita el desfase UTC)
+const toLocalDateStr = (d = new Date()) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -441,12 +449,12 @@ function EjecutarLineaForm({
 }) {
   const fmt = useContext(FmtCtx)
   const [monto, setMonto] = useState(linea.montoPlaneado.toString())
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
+  const [fecha, setFecha] = useState(toLocalDateStr())
   const [crearEvento, setCrearEvento] = useState(false)
   const [notas, setNotas] = useState('')
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit({ montoEjecutado: Number(monto), fecha, crearEvento, notas: notas || undefined }) }}
+    <form onSubmit={e => { e.preventDefault(); onSubmit({ montoEjecutado: Number(monto), fecha: `${fecha}T12:00:00.000Z`, crearEvento, notas: notas || undefined }) }}
       className="flex flex-col gap-4">
       <div className="rounded-lg bg-background p-3 text-sm">
         <div className="font-medium text-text-primary">{linea.concepto}</div>
@@ -1260,11 +1268,11 @@ function EjecutarAtomicoConfirm({
   onSubmit: (d: { fecha: string; notas?: string; cuentaId?: string }) => void
 }) {
   const fmt = useFmt()
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
+  const [fecha, setFecha] = useState(toLocalDateStr())
   const [notas, setNotas] = useState('')
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit({ fecha, notas: notas || undefined }) }}
+    <form onSubmit={e => { e.preventDefault(); onSubmit({ fecha: `${fecha}T12:00:00.000Z`, notas: notas || undefined }) }}
       className="flex flex-col gap-4">
       <div className="rounded-xl bg-primary/5 border border-primary/20 px-4 py-3 flex flex-col gap-1">
         <div className="text-sm text-text-secondary">{itemCount} ítems marcados se registrarán como una sola transacción:</div>
