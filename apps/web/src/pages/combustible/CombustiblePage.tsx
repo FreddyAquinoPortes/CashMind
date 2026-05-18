@@ -1281,6 +1281,7 @@ function TabPrecios() {
             { tipo: p.tipo, precio: Number(p.precio), fecha: new Date().toISOString(), fuente: p.fuente ?? undefined },
             {
               onSuccess: () => {
+                inv()
                 setModal(null)
                 showToast(`📌 ${p.tipo} fijado en DOP ${fmtDec(Number(p.precio), 2)}`)
               },
