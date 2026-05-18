@@ -294,14 +294,110 @@ function RouteMapPicker({ geoCtx, onConfirm }: {
 }
 
 // ── VehiculoForm ───────────────────────────────────────────────────────────
-interface VForm { marca: string; modelo: string; ano: string; mpgRealWorld: string; margenConsumo: string; fuenteMpg: string }
-const EMPTY_V: VForm = { marca: '', modelo: '', ano: String(new Date().getFullYear()), mpgRealWorld: '', margenConsumo: '15', fuenteMpg: '' }
+interface VForm { marca: string; modelo: string; ano: string; mpgRealWorld: string; margenConsumo: string; fuenteMpg: string; catalogoId?: string }
+const EMPTY_V: VForm = { marca: '', modelo: '', ano: String(new Date().getFullYear()), mpgRealWorld: '', margenConsumo: '15', fuenteMpg: '', catalogoId: undefined }
+
+interface CatalogoEntry { id: string; marca: string; modelo: string; anoDesde: number; anoHasta: number | null; motor: string | null; transmision: string | null; mpgCombinado: number; mpgCiudad: number; mpgCarretera: number }
 
 function VehiculoForm({ initial, onSubmit, loading, onClose }: { initial?: VForm; onSubmit(d: VForm): void; loading: boolean; onClose(): void }) {
   const [f, setF] = useState<VForm>(initial ?? EMPTY_V)
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [catalogResults, setCatalogResults] = useState<CatalogoEntry[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [fromCatalog, setFromCatalog] = useState(false)
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>()
+
   const upd = (k: keyof VForm) => (e: React.ChangeEvent<HTMLInputElement>) => setF(p => ({ ...p, [k]: e.target.value }))
+
+  // Debounced catalog search
+  useEffect(() => {
+    clearTimeout(searchTimer.current)
+    if (catalogSearch.length < 2) { setCatalogResults([]); return }
+    searchTimer.current = setTimeout(async () => {
+      setCatalogLoading(true)
+      try {
+        const { data } = await api.get(`/combustible/catalogo-vehiculos?q=${encodeURIComponent(catalogSearch)}`)
+        setCatalogResults(data.data ?? [])
+      } catch { setCatalogResults([]) }
+      finally { setCatalogLoading(false) }
+    }, 350)
+  }, [catalogSearch])
+
+  const selectCatalog = (c: CatalogoEntry) => {
+    setF({
+      marca: c.marca,
+      modelo: c.modelo,
+      ano: String(c.anoDesde),
+      mpgRealWorld: String(c.mpgCombinado),
+      margenConsumo: '15',
+      fuenteMpg: 'Catálogo CashMind',
+      catalogoId: c.id,
+    })
+    setFromCatalog(true)
+    setCatalogSearch('')
+    setCatalogResults([])
+  }
+
+  const clearCatalog = () => {
+    setFromCatalog(false)
+    setF(p => ({ ...p, catalogoId: undefined }))
+  }
+
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(f) }} className="flex flex-col gap-4">
+      {/* ── Catalog search (only for new vehicles, not editing) ── */}
+      {!initial && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-text-secondary">Buscar en catálogo</span>
+            {fromCatalog && (
+              <button type="button" onClick={clearCatalog}
+                className="text-xs text-text-muted hover:text-primary transition-colors">
+                Ingresar manualmente
+              </button>
+            )}
+          </div>
+          {fromCatalog ? (
+            <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
+              <span className="text-sm text-primary">📋 {f.marca} {f.modelo} ({f.ano})</span>
+              <span className="text-xs text-text-muted">· {f.mpgRealWorld} mpg (combinado)</span>
+            </div>
+          ) : (
+            <div className="relative">
+              <input
+                value={catalogSearch}
+                onChange={e => setCatalogSearch(e.target.value)}
+                className="input"
+                placeholder="Ej. Nissan Note, Corolla, Picanto…"
+              />
+              {catalogLoading && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-muted animate-pulse">Buscando…</span>
+              )}
+              {catalogResults.length > 0 && (
+                <div className="absolute top-full mt-1 z-50 w-full bg-surface border border-border rounded-xl shadow-xl overflow-hidden max-h-64 overflow-y-auto">
+                  {catalogResults.map(c => (
+                    <button key={c.id} type="button" onClick={() => selectCatalog(c)}
+                      className="w-full text-left px-3 py-2.5 hover:bg-surface-elevated transition-colors border-b border-border/40 last:border-0 flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-text-primary">{c.marca} {c.modelo}</p>
+                        <p className="text-xs text-text-muted">
+                          {c.anoDesde}{c.anoHasta ? `–${c.anoHasta}` : '+'} · {c.motor ?? '—'} · {c.transmision ?? '—'}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-sm font-semibold text-primary">{c.mpgCombinado} mpg</p>
+                        <p className="text-xs text-text-muted">{c.mpgCiudad}/{c.mpgCarretera} ciudad/carr.</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-text-muted mt-1">O completa los campos manualmente abajo ↓</p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1 text-sm text-text-secondary">
           Marca *
@@ -343,7 +439,7 @@ function VehiculoForm({ initial, onSubmit, loading, onClose }: { initial?: VForm
 
 // ── RutaForm ───────────────────────────────────────────────────────────────
 interface RForm { vehiculoId: string; nombre: string; distanciaKm: string; vecesPorSemana: string; tipoCombustible: string; porcentajePropio: string }
-const EMPTY_R: RForm = { vehiculoId: '', nombre: '', distanciaKm: '', vecesPorSemana: '5', tipoCombustible: 'Regular', porcentajePropio: '100' }
+const EMPTY_R: RForm = { vehiculoId: '', nombre: '', distanciaKm: '', vecesPorSemana: '5', tipoCombustible: 'Gasolina Regular', porcentajePropio: '100' }
 
 function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose }: {
   initial?: RForm; vehiculos: Vehiculo[]; geoCtx: GeoContext | null
@@ -875,6 +971,7 @@ function TabVehiculos({ cid }: { cid: string }) {
     marca: f.marca, modelo: f.modelo, ano: Number(f.ano),
     mpgRealWorld: Number(f.mpgRealWorld), margenConsumo: Number(f.margenConsumo),
     fuenteMpg: f.fuenteMpg || undefined,
+    catalogoId: f.catalogoId || undefined,
   })
 
   return (
@@ -954,16 +1051,18 @@ function TabVehiculos({ cid }: { cid: string }) {
 
 // ── Tab: Precios ───────────────────────────────────────────────────────────
 const TIPOS_CONFIG: Record<string, { color: string; emoji: string; unidad: string }> = {
-  Regular: { color: 'text-success',  emoji: '🟢', unidad: 'gal' },
-  Premium: { color: 'text-warning',  emoji: '🟡', unidad: 'gal' },
-  Gasoil:  { color: 'text-primary',  emoji: '🔵', unidad: 'gal' },
-  GLP:     { color: 'text-purple-400', emoji: '🟣', unidad: 'gal' },
-  GNC:     { color: 'text-slate-400',  emoji: '⚪', unidad: 'm³'  },
+  'Gasolina Regular':    { color: 'text-success',    emoji: '🟢', unidad: 'gal' },
+  'Gasolina Premium':    { color: 'text-warning',    emoji: '🟡', unidad: 'gal' },
+  'Gasoil Regular':      { color: 'text-primary',    emoji: '🔵', unidad: 'gal' },
+  'Gasoil Premium':      { color: 'text-cyan-400',   emoji: '🔷', unidad: 'gal' },
+  'Kerosene / Jet Fuel': { color: 'text-orange-400', emoji: '🟠', unidad: 'gal' },
+  'Gas Licuado (GLP)':   { color: 'text-purple-400', emoji: '🟣', unidad: 'gal' },
+  'Gas Natural (GNC)':   { color: 'text-slate-400',  emoji: '⚪', unidad: 'm³'  },
 }
 const TIPOS_LISTA = Object.keys(TIPOS_CONFIG)
 
 interface PrecioForm { tipo: string; precio: string; fecha: string; fuente: string }
-const emptyForm = (): PrecioForm => ({ tipo: 'Regular', precio: '', fecha: new Date().toISOString().slice(0, 10), fuente: '' })
+const emptyForm = (): PrecioForm => ({ tipo: 'Gasolina Regular', precio: '', fecha: new Date().toISOString().slice(0, 10), fuente: '' })
 
 function PrecioFormPanel({ initial, onSave, onCancel, loading }: {
   initial?: PrecioForm; onSave(f: PrecioForm): void; onCancel(): void; loading: boolean
@@ -1011,8 +1110,29 @@ function TabPrecios() {
   })
   const [modal, setModal] = useState<'new' | { type: 'edit'; p: Precio } | { type: 'history'; tipo: string } | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [syncing, setSyncing] = useState(false)
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000) }
   const inv = () => { qc.invalidateQueries({ queryKey: ['combustible-precios'] }); qc.invalidateQueries({ queryKey: ['combustible-calculo'] }) }
+
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      const { data: res } = await api.post('/combustible/sync-precios')
+      const r = res.data
+      if (r.updated > 0) {
+        showToast(`✅ ${r.updated} precio${r.updated !== 1 ? 's' : ''} actualizados desde prestocombustibles.com`)
+        inv()
+      } else if (r.errors?.length > 0) {
+        showToast(`⚠ No se pudieron obtener precios: ${r.errors[0]}`, 'error')
+      } else {
+        showToast('Sin cambios — precios ya están al día')
+      }
+    } catch (e: any) {
+      showToast(e?.response?.data?.error ?? e.message, 'error')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const create = useMutation({
     mutationFn: (d: object) => api.post('/combustible/precios', d),
@@ -1072,7 +1192,15 @@ function TabPrecios() {
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="btn-ghost text-sm flex items-center gap-1.5 disabled:opacity-50"
+          title="Obtener precios actuales de prestocombustibles.com (RD)"
+        >
+          {syncing ? '⏳ Sincronizando…' : '🔄 Sincronizar RD'}
+        </button>
         <button onClick={() => setModal('new')} className="btn-primary text-sm">+ Registrar precio</button>
       </div>
 

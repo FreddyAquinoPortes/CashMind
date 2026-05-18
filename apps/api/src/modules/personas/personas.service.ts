@@ -2,12 +2,13 @@ import { z } from 'zod'
 import { prisma } from '../../shared/prisma'
 
 const personaSchema = z.object({
+  tipo: z.enum(['persona', 'entidad']).default('persona'),
   nombre: z.string().min(1),
-  apellido: z.string().optional(),
-  relacion: z.string().optional(),
-  telefono: z.string().optional(),
-  email: z.string().optional(),
-  notas: z.string().optional(),
+  apellido: z.string().nullish(),
+  relacion: z.string().nullish(),
+  telefono: z.string().nullish(),
+  email: z.string().nullish(),
+  notas: z.string().nullish(),
 })
 
 export class PersonasService {
@@ -31,7 +32,16 @@ export class PersonasService {
   async create(clienteId: string, body: unknown) {
     const d = personaSchema.parse(body)
     return prisma.persona.create({
-      data: { clienteId, nombre: d.nombre, apellido: d.apellido ?? null, relacion: d.relacion ?? null, telefono: d.telefono ?? null, email: d.email ?? null, notas: d.notas ?? null },
+      data: {
+        clienteId,
+        tipo: d.tipo,
+        nombre: d.nombre,
+        apellido: d.apellido ?? null,
+        relacion: d.relacion ?? null,
+        telefono: d.telefono ?? null,
+        email: d.email ?? null,
+        notas: d.notas ?? null,
+      },
     })
   }
 
@@ -40,6 +50,7 @@ export class PersonasService {
     return prisma.persona.update({
       where: { id },
       data: {
+        ...(d.tipo !== undefined && { tipo: d.tipo }),
         ...(d.nombre !== undefined && { nombre: d.nombre }),
         ...(d.apellido !== undefined && { apellido: d.apellido ?? null }),
         ...(d.relacion !== undefined && { relacion: d.relacion ?? null }),

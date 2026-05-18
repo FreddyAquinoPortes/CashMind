@@ -39,7 +39,37 @@ export class TransaccionesService {
         skip: f.offset,
       }),
     ])
-    return { total, items, limit: f.limit, offset: f.offset }
+
+    // Fetch categories for transactions that have categoriaId but no subcategoria
+    const catIds = items
+      .filter((tx: any) => tx.categoriaId && !tx.subcategoria?.categoria)
+      .map((tx: any) => tx.categoriaId as string)
+    const catsById: Record<string, any> = {}
+    if (catIds.length > 0) {
+      const cats = await prisma.categoria.findMany({
+        where: { id: { in: [...new Set(catIds)] } },
+        select: { id: true, nombre: true, color: true, icono: true },
+      })
+      for (const c of cats) catsById[c.id] = c
+    }
+
+    // Map subcategoria.categoria → top-level categoria for the frontend
+    const mapped = items.map((tx: any) => {
+      const categoria = tx.subcategoria?.categoria ?? (tx.categoriaId ? catsById[tx.categoriaId] : null) ?? null
+      const { subcategoria, cuenta, ...rest } = tx
+      return {
+        ...rest,
+        categoria: categoria
+          ? { id: categoria.id, nombre: categoria.nombre, color: categoria.color, icono: categoria.icono }
+          : null,
+        subcategoria: subcategoria
+          ? { id: subcategoria.id, nombre: subcategoria.nombre, color: subcategoria.color }
+          : null,
+        cuentaBancaria: cuenta ?? null,
+      }
+    })
+
+    return { total, items: mapped, limit: f.limit, offset: f.offset }
   }
 
   async create(clienteId: string, body: unknown) {
@@ -86,15 +116,80 @@ export class TransaccionesService {
         pagadoPorId: data.pagadoPorId ?? null,
       },
     })
-    if (data.cuentaId) {
+
+    // Update bank account balance
+    if (data.cuentaId && (data.tipo === 'GASTO' || data.tipo === 'INGRESO')) {
       const delta = data.tipo === 'INGRESO' ? Number(data.monto) : -Number(data.monto)
-      if (data.tipo === 'GASTO' || data.tipo === 'INGRESO') {
-        await prisma.cuentaBancaria.update({
-          where: { id: data.cuentaId },
-          data: { saldo: { increment: delta } },
-        })
-      }
+      await prisma.cuentaBancaria.update({
+        where: { id: data.cuentaId },
+        data: { saldo: { increment: delta } },
+      })
     }
+
+    // Update credit card balance
+    if (data.tarjetaId && (data.tipo === 'GASTO' || data.tipo === 'INGRESO')) {
+      const delta = data.tipo === 'GASTO' ? Number(data.monto) : -Number(data.monto)
+      await prisma.tarjetaCredito.update({
+        where: { id: data.tarjetaId },
+        data: { saldoActual: { increment: delta } },
+      })
+    }
+
+    // ── Multi-debt payment distribution ──────────────────────────────────────
+    // When tipo=PAGO_DEUDA and deudaIds is provided, distribute payment
+    // across debts sorted by saldoActual ASC (pay smallest first).
+    if (data.tipo === 'PAGO_DEUDA' && data.deudaIds && data.deudaIds.length > 0) {
+      const debts = await prisma.deuda.findMany({
+        where: { id: { in: data.deudaIds }, estado: 'ACTIVA' },
+        orderBy: { saldoActual: 'asc' },
+      })
+
+      let remaining = Number(data.monto)
+
+      await prisma.$transaction(async (trx) => {
+        for (const debt of debts) {
+          if (remaining <= 0) break
+          const saldo = Number(debt.saldoActual)
+          const payment = Math.min(remaining, saldo)
+          const nuevoSaldo = Math.max(0, saldo - payment)
+          remaining = Math.round((remaining - payment) * 100) / 100
+
+          // Create PagoDeuda record linked to this transaction
+          await trx.pagoDeuda.create({
+            data: {
+              deudaId: debt.id,
+              monto: payment,
+              fecha: data.fecha,
+              estado: 'EJECUTADO',
+              notas: data.notas ?? null,
+              transaccionId: tx.id,
+            },
+          })
+
+          // Update debt balance
+          await trx.deuda.update({
+            where: { id: debt.id },
+            data: {
+              saldoActual: nuevoSaldo,
+              ...(nuevoSaldo <= 0 && { estado: 'SALDADA' }),
+            },
+          })
+
+          // Mark the next PLANIFICADO cuota event as EJECUTADO
+          const nextEvento = await trx.evento.findFirst({
+            where: { deudaId: debt.id, estado: 'PLANIFICADO' },
+            orderBy: { numeroCuota: 'asc' },
+          })
+          if (nextEvento) {
+            await trx.evento.update({
+              where: { id: nextEvento.id },
+              data: { estado: 'EJECUTADO' },
+            })
+          }
+        }
+      })
+    }
+
     return tx
   }
 
@@ -125,7 +220,64 @@ export class TransaccionesService {
     })
   }
 
+  /** IDs of the last N transactions for a client (by creation time) — the only ones deletable */
+  async deletables(clienteId: string, n = 5): Promise<string[]> {
+    const rows = await prisma.transaccion.findMany({
+      where: { clienteId },
+      orderBy: { createdAt: 'desc' },
+      take: n,
+      select: { id: true },
+    })
+    return rows.map(r => r.id)
+  }
+
   async remove(id: string) {
-    return prisma.transaccion.delete({ where: { id } })
+    const tx = await prisma.transaccion.findUniqueOrThrow({ where: { id } })
+
+    // Verify this is among the 5 most recently registered transactions
+    const allowed = await this.deletables(tx.clienteId)
+    if (!allowed.includes(id)) {
+      throw Object.assign(
+        new Error('Solo puedes eliminar las 5 transacciones registradas más recientemente.'),
+        { status: 403 },
+      )
+    }
+
+    await prisma.$transaction(async trx => {
+      // Revert bank account balance
+      if (tx.cuentaId && (tx.tipo === 'GASTO' || tx.tipo === 'INGRESO')) {
+        const revertDelta = tx.tipo === 'INGRESO' ? -Number(tx.monto) : Number(tx.monto)
+        await trx.cuentaBancaria.update({
+          where: { id: tx.cuentaId },
+          data: { saldo: { increment: revertDelta } },
+        })
+      }
+      // Revert credit card balance
+      if (tx.tarjetaId && (tx.tipo === 'GASTO' || tx.tipo === 'INGRESO')) {
+        const revertDelta = tx.tipo === 'GASTO' ? -Number(tx.monto) : Number(tx.monto)
+        await trx.tarjetaCredito.update({
+          where: { id: tx.tarjetaId },
+          data: { saldoActual: { increment: revertDelta } },
+        })
+      }
+      // Revert debt balances for PAGO_DEUDA
+      if (tx.tipo === 'PAGO_DEUDA') {
+        const pagos = await trx.pagoDeuda.findMany({ where: { transaccionId: id } })
+        for (const pago of pagos) {
+          await trx.deuda.update({
+            where: { id: pago.deudaId },
+            data: {
+              saldoActual: { increment: Number(pago.monto) },
+              // Re-activate if it was marked SALDADA by this transaction
+              estado: 'ACTIVA',
+            },
+          })
+        }
+        await trx.pagoDeuda.deleteMany({ where: { transaccionId: id } })
+      }
+      await trx.transaccion.delete({ where: { id } })
+    })
+
+    return { ok: true, reverted: !!(tx.cuentaId || tx.tarjetaId || tx.tipo === 'PAGO_DEUDA') }
   }
 }

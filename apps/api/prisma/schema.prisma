@@ -30,6 +30,13 @@ enum EstadoCiclo {
   EN_MORA
 }
 
+enum EstadoExtraCredito {
+  ACTIVO
+  PAGADO
+  EN_MORA
+  CANCELADO
+}
+
 enum Frecuencia {
   UNICA
   DIARIA
@@ -202,6 +209,7 @@ model Cliente {
   reglasCategorizacion ReglaCategorizacion[]
   notificaciones       Notificacion[]
   webhooks             Webhook[]
+  proyeccionItems      ProyeccionItem[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 }
@@ -244,12 +252,55 @@ model TarjetaCredito {
   penalidadSobregiro Decimal        @default(0) @db.Decimal(15, 2)
   moneda             String         @default("DOP")
   activa             Boolean        @default(true)
+  // Doble balance: tarjetas multi-moneda (ej: DOP + USD con límites independientes)
+  dobleBalance       Boolean        @default(false)
+  monedaSecundaria   String?
+  limiteSecundario   Decimal?       @db.Decimal(15, 2)
+  saldoSecundario    Decimal?       @db.Decimal(15, 2)
+  tieneExtraCredito  Boolean        @default(false)
   transacciones      Transaccion[]
   ciclos             CicloTarjeta[]
+  extraCreditos      ExtraCredito[]
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
   @@index([clienteId])
+}
+
+model ExtraCredito {
+  id              String              @id @default(cuid())
+  tarjetaId       String
+  tarjeta         TarjetaCredito      @relation(fields: [tarjetaId], references: [id], onDelete: Cascade)
+  descripcion     String?
+  montoOriginal   Decimal             @db.Decimal(15, 2)
+  saldoPendiente  Decimal             @db.Decimal(15, 2)
+  tasaInteres     Decimal             @default(0) @db.Decimal(5, 2)
+  numeroCuotas    Int
+  cuotasPagadas   Int                 @default(0)
+  montoCuota      Decimal             @db.Decimal(15, 2)
+  fechaInicio     DateTime
+  diaPago         Int
+  estado          EstadoExtraCredito  @default(ACTIVO)
+  moneda          String              @default("DOP")
+  categoriaId     String?
+  subcategoriaId  String?
+  pagos           PagoExtraCredito[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([tarjetaId])
+}
+
+model PagoExtraCredito {
+  id             String       @id @default(cuid())
+  extraCreditoId String
+  extraCredito   ExtraCredito @relation(fields: [extraCreditoId], references: [id], onDelete: Cascade)
+  monto          Decimal      @db.Decimal(15, 2)
+  fecha          DateTime
+  notas          String?
+  cuentaId        String?
+  transaccionId   String?           @unique
+  createdAt      DateTime     @default(now())
 }
 
 model CicloTarjeta {
@@ -355,27 +406,29 @@ model Transaccion {
 
 // =================== DEUDAS ===================
 model Deuda {
-  id            String            @id @default(cuid())
-  clienteId     String
-  cliente       Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  concepto      String?
-  acreedorTexto String?
-  personaId     String?
-  persona       Persona?          @relation(fields: [personaId], references: [id])
-  tipo          TipoDeuda
-  montoOriginal Decimal           @db.Decimal(15, 2)
-  saldoActual   Decimal           @db.Decimal(15, 2)
-  moneda        String            @default("DOP")
-  fechaInicio   DateTime
-  fechaFin      DateTime?
-  tasaInteres   Decimal?          @db.Decimal(5, 2)
-  tipoPlazo     TipoPlazo
-  numeroCuotas  Int?
-  diaCobro      Int?
-  estado        EstadoDeuda       @default(ACTIVA)
-  notas         String?
-  pagos         PagoDeuda[]
-  createdAt     DateTime          @default(now())
+  id             String            @id @default(cuid())
+  clienteId      String
+  cliente        Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  concepto       String?
+  acreedorTexto  String?
+  personaId      String?
+  persona        Persona?          @relation(fields: [personaId], references: [id])
+  tipo           TipoDeuda
+  montoOriginal  Decimal           @db.Decimal(15, 2)
+  saldoActual    Decimal           @db.Decimal(15, 2)
+  moneda         String            @default("DOP")
+  fechaInicio    DateTime
+  fechaFin       DateTime?
+  tasaInteres    Decimal?          @db.Decimal(5, 2)
+  tipoPlazo      TipoPlazo
+  numeroCuotas   Int?
+  diaCobro       Int?
+  estado         EstadoDeuda       @default(ACTIVA)
+  notas          String?
+  categoriaId    String?
+  subcategoriaId String?
+  pagos          PagoDeuda[]
+  createdAt      DateTime          @default(now())
 
   @@index([clienteId])
 }
@@ -388,7 +441,8 @@ model PagoDeuda {
   fecha         DateTime
   estado        EstadoTransaccion
   notas         String?
-  transaccionId String?           @unique
+  transaccionId String?           // removed @unique — one Transaccion can pay multiple debts
+  @@index([transaccionId])
 }
 
 // =================== EVENTOS ===================
@@ -414,6 +468,9 @@ model Evento {
   subcategoriaId      String?
   subcategoria        Subcategoria? @relation(fields: [subcategoriaId], references: [id])
   notas               String?
+  extraCreditoId  String?
+  deudaId         String?
+  numeroCuota     Int?
   transacciones       Transaccion[]
 
   @@index([clienteId, fecha])
@@ -430,9 +487,29 @@ model Vehiculo {
   mpgRealWorld  Decimal                @db.Decimal(5, 2)
   margenConsumo Decimal                @default(15) @db.Decimal(5, 2)
   fuenteMpg     String?
+  catalogoId    String?
+  catalogo      VehiculoCatalogo?      @relation(fields: [catalogoId], references: [id])
   rutas         Ruta[]
   rendimientos  VehiculoRendimiento[]
   activo        Boolean                @default(true)
+}
+
+model VehiculoCatalogo {
+  id            String     @id @default(cuid())
+  marca         String
+  modelo        String
+  anoDesde      Int
+  anoHasta      Int?
+  motor         String?    // ej. "1.2L NA"
+  transmision   String?    // MANUAL | AUTOMATICO | CVT
+  combustible   String     @default("Regular")
+  mpgCiudad     Decimal    @db.Decimal(5, 2)
+  mpgCarretera  Decimal    @db.Decimal(5, 2)
+  mpgCombinado  Decimal    @db.Decimal(5, 2)
+  fuente        String?
+  vehiculos     Vehiculo[]
+
+  @@index([marca, modelo])
 }
 
 model VehiculoRendimiento {
@@ -625,4 +702,24 @@ model Webhook {
   secret    String
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+// =================== PROYECCIONES ===================
+model ProyeccionItem {
+  id            String    @id @default(cuid())
+  clienteId     String
+  cliente       Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nombre        String
+  monto         Decimal   @db.Decimal(15, 2)
+  tipo          String    @default("GASTO")   // GASTO | INGRESO
+  moneda        String    @default("DOP")
+  // null = one-time within the projection period
+  // DIARIA | SEMANAL | MENSUAL | ANUAL
+  periodicidad  String?
+  categoriaId   String?
+  notas         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([clienteId])
 }

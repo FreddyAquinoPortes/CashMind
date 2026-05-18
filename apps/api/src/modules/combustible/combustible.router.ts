@@ -6,6 +6,22 @@ import { CombustibleService } from './combustible.service'
 export const combustibleRouter = Router()
 const svc = new CombustibleService()
 
+// ── Catálogo global de vehículos ───────────────────────────────────────────
+combustibleRouter.get('/combustible/catalogo-vehiculos', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    const { q, marca } = req.query as { q?: string; marca?: string }
+    res.json({ data: await svc.searchCatalogo(q, marca) })
+  } catch (err) { next(err) }
+})
+
+// ── Sync precios (manual trigger) ─────────────────────────────────────────
+combustibleRouter.post('/combustible/sync-precios', requireAuth, async (_req: AuthRequest, res, next) => {
+  try {
+    const result = await svc.syncPrecios()
+    res.json({ data: result })
+  } catch (err) { next(err) }
+})
+
 // ── Rendimientos por combustible ───────────────────────────────────────────
 combustibleRouter.get('/vehiculos/:id/rendimientos', requireAuth, async (req: AuthRequest, res, next) => {
   try {

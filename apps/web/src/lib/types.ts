@@ -28,6 +28,7 @@ export interface Transaccion {
   id: string
   clienteId: string
   cuentaId: string | null
+  tarjetaId: string | null
   categoriaId: string | null
   subcategoriaId: string | null
   fecha: string
@@ -39,6 +40,7 @@ export interface Transaccion {
   categoria?: { id: string; nombre: string; color: string | null; icono: string | null } | null
   subcategoria?: { id: string; nombre: string; color: string | null } | null
   cuentaBancaria?: { id: string; alias: string | null; banco: string } | null
+  tarjeta?: { alias: string | null; ultimosCuatro: string } | null
 }
 
 export interface PaginatedResponse<T> {
@@ -67,6 +69,42 @@ export type Franquicia     = 'VISA' | 'MASTERCARD' | 'AMEX' | 'DISCOVER'
 export type TipoTarjeta    = 'CREDITO' | 'DEBITO'
 export type CategoriaTarjeta = 'STANDARD' | 'GOLD' | 'PLATINUM' | 'BLACK'
 
+export type EstadoExtraCredito = 'ACTIVO' | 'PAGADO' | 'EN_MORA' | 'CANCELADO'
+
+export interface PagoExtraCredito {
+  id: string
+  extraCreditoId: string
+  monto: string
+  fecha: string
+  notas: string | null
+  createdAt: string
+}
+
+export interface ExtraCredito {
+  id: string
+  tarjetaId: string
+  descripcion: string | null
+  montoOriginal: string
+  saldoPendiente: string
+  tasaInteres: string
+  numeroCuotas: number
+  cuotasPagadas: number
+  montoCuota: string
+  fechaInicio: string
+  diaPago: number
+  estado: EstadoExtraCredito
+  moneda: string
+  categoriaId: string | null
+  subcategoriaId: string | null
+  pagos: PagoExtraCredito[]
+  // computed
+  cuotasRestantes: number
+  progreso: number
+  proximoPago: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface TarjetaCredito {
   id: string
   clienteId: string
@@ -77,14 +115,27 @@ export interface TarjetaCredito {
   tipoTarjeta: TipoTarjeta | null
   categoriaTarjeta: CategoriaTarjeta | null
   limite: string
-  saldoActual: string
+  saldoActual: string   // puede ser negativo (sobregiro/intereses)
   tasaInteres: string
   diaCorte: number
   diaPago: number
   moneda: string
   activa: boolean
-  utilizacion: number   // computed
-  disponible: number    // computed
+  // Doble balance
+  dobleBalance: boolean
+  monedaSecundaria: string | null
+  limiteSecundario: string | null
+  saldoSecundario: string | null    // puede ser negativo
+  // ExtraCredito
+  tieneExtraCredito: boolean
+  extraCreditos?: ExtraCredito[]
+  // computed
+  utilizacion: number
+  disponible: number
+  sobregiro: number
+  disponibleSecundario?: number
+  sobregiroSecundario?: number
+  utilizacionSecundaria?: number
   createdAt: string
 }
 
@@ -129,7 +180,24 @@ export interface Deuda {
   diaCobro: number | null
   estado: EstadoDeuda
   notas: string | null
+  categoriaId: string | null
+  subcategoriaId: string | null
   createdAt: string
+}
+
+export interface VehiculoCatalogo {
+  id: string
+  marca: string
+  modelo: string
+  anoDesde: number
+  anoHasta: number | null
+  motor: string | null
+  transmision: string | null
+  combustible: string
+  mpgCiudad: number
+  mpgCarretera: number
+  mpgCombinado: number
+  fuente: string | null
 }
 
 export interface PagoDeuda {

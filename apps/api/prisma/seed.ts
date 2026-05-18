@@ -8,21 +8,21 @@ async function main() {
 
   // ---- Categorías globales ----
   const categorias = [
-    { nombre: 'Vivienda',            peso: 10, icono: 'tabler:home',           esEsencial: true,  subs: ['Renta/Hipoteca','Mantenimiento','Mejoras'] },
-    { nombre: 'Servicios básicos',   peso: 9,  icono: 'tabler:bolt',           esEsencial: true,  subs: ['Electricidad','Agua','Gas doméstico','Internet','Telefonía','Streaming'] },
-    { nombre: 'Alimentación',        peso: 9,  icono: 'tabler:shopping-cart',  esEsencial: true,  subs: ['Supermercado','Comida fuera','Comida rápida','Bebidas'] },
-    { nombre: 'Transporte',          peso: 8,  icono: 'tabler:car',            esEsencial: true,  subs: ['Combustible','Peaje','Mantenimiento vehículo','Uber/Taxi','Seguro vehículo'] },
-    { nombre: 'Salud',               peso: 10, icono: 'tabler:heart-rate',     esEsencial: true,  subs: ['Farmacia','Consultas','Laboratorio','Seguro médico'] },
-    { nombre: 'Deudas',              peso: 9,  icono: 'tabler:credit-card',    esEsencial: true,  subs: ['Tarjeta crédito','Préstamo personal','Préstamo bancario','Deuda familiar'] },
-    { nombre: 'Educación',           peso: 8,  icono: 'tabler:school',         esEsencial: true,  subs: ['Matrícula','Material','Cursos'] },
-    { nombre: 'Familia',             peso: 6,  icono: 'tabler:users',          esEsencial: false, subs: ['Apoyo familiar','Cumpleaños','Día especial'] },
-    { nombre: 'Personal',            peso: 5,  icono: 'tabler:user',           esEsencial: false, subs: ['Higiene','Ropa','Gimnasio'] },
-    { nombre: 'Tecnología',          peso: 4,  icono: 'tabler:device-laptop',  esEsencial: false, subs: ['Suscripciones','Hardware','Software'] },
-    { nombre: 'Ocio',                peso: 3,  icono: 'tabler:device-gamepad', esEsencial: false, subs: ['Entretenimiento','Salidas','Compras online'] },
-    { nombre: 'Imprevistos',         peso: 7,  icono: 'tabler:first-aid-kit',  esEsencial: false, subs: ['Reserva mensual','Emergencias'] },
-    { nombre: 'Impuestos/Comisiones',peso: 10, icono: 'tabler:receipt',        esEsencial: true,  subs: ['DGII','Cargos bancarios','Comisiones'] },
-    { nombre: 'Ingresos',            peso: 10, icono: 'tabler:trending-up',    esEsencial: true,  subs: ['Nómina','Apoyo familiar recibido','Trabajos extra','Bonos','Devoluciones'] },
-    { nombre: 'Transferencia',       peso: 5,  icono: 'tabler:transfer',       esEsencial: false, subs: ['Retiro efectivo','Envío transferencia','Recibir transferencia'] },
+    { nombre: 'Vivienda',            peso: 10, icono: 'tabler:home',            esEsencial: true,  subs: ['Renta/Hipoteca','Mantenimiento','Mejoras'] },
+    { nombre: 'Servicios básicos',   peso: 9,  icono: 'tabler:plug',            esEsencial: true,  subs: ['Electricidad','Agua','Gas doméstico','Internet','Telefonía','Streaming'] },
+    { nombre: 'Alimentación',        peso: 9,  icono: 'tabler:shopping-cart',   esEsencial: true,  subs: ['Supermercado','Comida fuera','Comida rápida','Bebidas'] },
+    { nombre: 'Transporte',          peso: 8,  icono: 'tabler:car',             esEsencial: true,  subs: ['Combustible','Peaje','Mantenimiento vehículo','Uber/Taxi','Seguro vehículo'] },
+    { nombre: 'Salud',               peso: 10, icono: 'tabler:stethoscope',     esEsencial: true,  subs: ['Farmacia','Consultas','Laboratorio','Seguro médico'] },
+    { nombre: 'Deudas',              peso: 9,  icono: 'tabler:credit-card',     esEsencial: true,  subs: ['Tarjeta crédito','Préstamo personal','Préstamo bancario','Deuda familiar'] },
+    { nombre: 'Educación',           peso: 8,  icono: 'tabler:school',          esEsencial: true,  subs: ['Matrícula','Material','Cursos'] },
+    { nombre: 'Familia',             peso: 6,  icono: 'tabler:users',           esEsencial: false, subs: ['Apoyo familiar','Cumpleaños','Día especial'] },
+    { nombre: 'Personal',            peso: 5,  icono: 'tabler:user-circle',     esEsencial: false, subs: ['Higiene','Ropa','Gimnasio'] },
+    { nombre: 'Tecnología',          peso: 4,  icono: 'tabler:device-laptop',   esEsencial: false, subs: ['Suscripciones','Hardware','Software'] },
+    { nombre: 'Ocio',                peso: 3,  icono: 'tabler:device-gamepad-2',esEsencial: false, subs: ['Entretenimiento','Salidas','Compras online'] },
+    { nombre: 'Imprevistos',         peso: 7,  icono: 'tabler:alert-triangle',  esEsencial: false, subs: ['Reserva mensual','Emergencias'] },
+    { nombre: 'Impuestos/Comisiones',peso: 10, icono: 'tabler:receipt-tax',     esEsencial: true,  subs: ['DGII','Cargos bancarios','Comisiones'] },
+    { nombre: 'Ingresos',            peso: 10, icono: 'tabler:trending-up',     esEsencial: true,  subs: ['Nómina','Apoyo familiar recibido','Trabajos extra','Bonos','Devoluciones'] },
+    { nombre: 'Transferencia',       peso: 5,  icono: 'tabler:arrows-exchange', esEsencial: false, subs: ['Retiro efectivo','Envío transferencia','Recibir transferencia'] },
   ]
 
   const catMap: Record<string, { id: string; subs: Record<string, string> }> = {}

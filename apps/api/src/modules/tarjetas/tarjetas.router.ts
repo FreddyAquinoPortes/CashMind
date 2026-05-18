@@ -32,3 +32,36 @@ tarjetasRouter.delete('/tarjetas/:id', requireAuth, async (req: AuthRequest, res
     res.json({ data: { ok: true } })
   } catch (err) { next(err) }
 })
+
+// ── ExtraCredito routes ─────────────────────────────────────────────────────
+
+tarjetasRouter.post('/tarjetas/:id/extracredito', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    res.status(201).json({ data: await svc.createExtraCredito(req.params.id!, req.body) })
+  } catch (err) { next(err) }
+})
+
+tarjetasRouter.get('/tarjetas/:id/extracredito', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    res.json({ data: await svc.listExtraCreditos(req.params.id!) })
+  } catch (err) { next(err) }
+})
+
+tarjetasRouter.patch('/extracredito/:id', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    res.json({ data: await svc.updateExtraCredito(req.params.id!, req.body) })
+  } catch (err) { next(err) }
+})
+
+tarjetasRouter.delete('/extracredito/:id', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    await svc.deleteExtraCredito(req.params.id!)
+    res.json({ data: { ok: true } })
+  } catch (err) { next(err) }
+})
+
+tarjetasRouter.post('/extracredito/:id/pago', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    res.status(201).json({ data: await svc.registrarPagoExtraCredito(req.params.id!, req.body) })
+  } catch (err) { next(err) }
+})
