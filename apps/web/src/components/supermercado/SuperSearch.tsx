@@ -4,11 +4,14 @@
  * Flow A (browse):  Category grid → subcategory tiles → merged product list
  * Flow B (search):  Type query → typeahead dropdown → merged product list
  *
- * Merged products show a single card per product (name+unit) with
- * per-store pricing. The user picks which store before adding to cart.
+ * Features:
+ * - Merged products: one card per product (name+unit) across all stores
+ * - Per-store price comparison with "Mejor precio" badge
+ * - Quantity selector per product (unit price × qty = line total)
+ * - Binary sort toggles: Precio ↑↓ and Supermercados ↑↓
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Icon } from '@iconify/react'
 import { api } from '../../lib/api'
@@ -52,9 +55,12 @@ export interface SelectedProduct {
   image: string
   unit: string
   brand: string       // product brand
-  price: number       // price at the selected store
+  price: number       // unit price
+  quantity: number    // how many units
   storeName: string   // which supermarket
 }
+
+type SortDir = null | 'asc' | 'desc'
 
 // ── Category definitions ──────────────────────────────────────────────────
 
@@ -101,31 +107,84 @@ function useMergedProducts(slug: string) {
   })
 }
 
+// ── SortButton ────────────────────────────────────────────────────────────
+
+function SortButton({
+  label,
+  icon,
+  value,
+  onChange,
+}: {
+  label: string
+  icon: string
+  value: SortDir
+  onChange: (next: SortDir) => void
+}) {
+  const cycle = () => {
+    if (value === null)   onChange('desc')
+    else if (value === 'desc') onChange('asc')
+    else                       onChange(null)
+  }
+
+  const arrowIcon =
+    value === 'desc' ? 'tabler:arrow-up'
+    : value === 'asc' ? 'tabler:arrow-down'
+    : 'tabler:arrows-sort'
+
+  return (
+    <button
+      type="button"
+      onClick={cycle}
+      title={value === 'desc' ? `${label}: mayor primero` : value === 'asc' ? `${label}: menor primero` : `Ordenar por ${label}`}
+      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all
+        ${value
+          ? 'border-primary bg-primary/10 text-primary'
+          : 'border-border text-text-muted hover:border-primary/40 hover:text-text-secondary'}`}
+    >
+      <Icon icon={icon} className="w-3.5 h-3.5" />
+      <span>{label}</span>
+      <Icon
+        icon={arrowIcon}
+        className={`w-3 h-3 transition-transform ${value ? 'opacity-100' : 'opacity-40'}`}
+      />
+    </button>
+  )
+}
+
 // ── MergedProductCard ─────────────────────────────────────────────────────
 
 function MergedProductCard({
   product,
-  selectedIds,
+  selectedProducts,
   onAddStore,
   onRemoveStore,
+  onUpdateQuantity,
 }: {
   product: MergedProduct
-  selectedIds: Set<number>
+  selectedProducts: SelectedProduct[]
   onAddStore: (store: StorePrice, product: MergedProduct) => void
   onRemoveStore: (productId: number) => void
+  onUpdateQuantity: (productId: number, qty: number) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const selectedStore = product.stores.find(s => selectedIds.has(s.productId))
-  const isSelected = !!selectedStore
+
+  const selectedEntry = selectedProducts.find(sp =>
+    product.stores.some(s => s.productId === sp.productId)
+  )
+  const selectedStore = selectedEntry
+    ? product.stores.find(s => s.productId === selectedEntry.productId)
+    : null
+  const qty = selectedEntry?.quantity ?? 1
+  const selectedIds = new Set(selectedProducts.map(p => p.productId))
 
   const fmtPrice = (n: number) =>
     'RD$' + n.toLocaleString('es-DO', { minimumFractionDigits: 2 })
 
   return (
     <div className={`rounded-xl border transition-all overflow-hidden
-      ${isSelected ? 'border-primary bg-primary/8' : 'border-border bg-surface hover:border-primary/40'}`}>
+      ${selectedEntry ? 'border-primary bg-primary/5' : 'border-border bg-surface hover:border-primary/40'}`}>
 
-      {/* ── Product row ── */}
+      {/* ── Product header row ── */}
       <button
         type="button"
         onClick={() => setExpanded(e => !e)}
@@ -152,32 +211,64 @@ function MergedProductCard({
               desde {fmtPrice(product.lowestPrice)}
             </span>
             <span className="text-[10px] text-text-muted bg-surface-elevated px-1.5 py-0.5 rounded-full">
-              {product.storeCount} super{product.storeCount !== 1 ? 'mercados' : 'mercado'}
+              {product.storeCount} {product.storeCount === 1 ? 'supermercado' : 'supermercados'}
             </span>
           </div>
         </div>
 
-        {/* Expand chevron or selected indicator */}
-        {isSelected
+        {/* Chevron / check */}
+        {selectedEntry
           ? <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
               <Icon icon="tabler:check" className="w-3 h-3 text-white" />
             </div>
-          : <Icon icon={expanded ? 'tabler:chevron-up' : 'tabler:chevron-down'}
-              className="w-4 h-4 text-text-muted flex-shrink-0" />}
+          : <Icon
+              icon={expanded ? 'tabler:chevron-up' : 'tabler:chevron-down'}
+              className="w-4 h-4 text-text-muted flex-shrink-0"
+            />}
       </button>
 
-      {/* ── Selected store badge ── */}
-      {selectedStore && (
-        <div className="mx-3 mb-2 flex items-center justify-between bg-primary/10 border border-primary/20 rounded-lg px-3 py-1.5">
-          <div className="flex items-center gap-1.5">
-            <Icon icon="tabler:building-store" className="w-3 h-3 text-primary" />
-            <span className="text-xs text-primary font-semibold">{selectedStore.shopName}</span>
-            <span className="text-xs text-primary/70 tabular-nums">· {fmtPrice(selectedStore.price)}</span>
+      {/* ── Selected store + quantity stepper ── */}
+      {selectedStore && selectedEntry && (
+        <div className="mx-3 mb-2 flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-lg px-2.5 py-2">
+          {/* Store info */}
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            <Icon icon="tabler:building-store" className="w-3 h-3 text-primary flex-shrink-0" />
+            <span className="text-xs text-primary font-semibold truncate">{selectedStore.shopName}</span>
+            <span className="text-[10px] text-primary/60 tabular-nums flex-shrink-0">
+              · {fmtPrice(selectedStore.price)} /u
+            </span>
           </div>
+
+          {/* Quantity stepper */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onUpdateQuantity(selectedEntry.productId, qty - 1) }}
+              disabled={qty <= 1}
+              className="w-6 h-6 rounded-md border border-primary/40 flex items-center justify-center text-primary hover:bg-primary/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <Icon icon="tabler:minus" className="w-3 h-3" />
+            </button>
+            <span className="text-xs font-bold text-primary tabular-nums w-6 text-center select-none">{qty}</span>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onUpdateQuantity(selectedEntry.productId, qty + 1) }}
+              className="w-6 h-6 rounded-md border border-primary/40 flex items-center justify-center text-primary hover:bg-primary/20 transition-colors"
+            >
+              <Icon icon="tabler:plus" className="w-3 h-3" />
+            </button>
+          </div>
+
+          {/* Total price */}
+          <span className="text-xs font-bold text-primary tabular-nums flex-shrink-0">
+            = {fmtPrice(selectedStore.price * qty)}
+          </span>
+
+          {/* Remove */}
           <button
             type="button"
-            onClick={e => { e.stopPropagation(); onRemoveStore(selectedStore.productId) }}
-            className="text-text-muted hover:text-danger transition-colors ml-2"
+            onClick={e => { e.stopPropagation(); onRemoveStore(selectedEntry.productId) }}
+            className="text-text-muted hover:text-danger transition-colors ml-1 flex-shrink-0"
           >
             <Icon icon="tabler:x" className="w-3.5 h-3.5" />
           </button>
@@ -186,24 +277,20 @@ function MergedProductCard({
 
       {/* ── Store picker (expanded) ── */}
       {expanded && (
-        <div className="px-3 pb-3 flex flex-col gap-1.5 border-t border-border/40 pt-2.5 mt-1">
+        <div className="px-3 pb-3 flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
           <div className="text-[10px] text-text-muted font-semibold uppercase tracking-wider mb-1">
             Elige dónde comprar
           </div>
           {product.stores.map(store => {
-            const isCheapest = store.price === product.lowestPrice
+            const isCheapest    = store.price === product.lowestPrice
             const isThisSelected = selectedIds.has(store.productId)
             return (
               <button
                 key={store.shopId}
                 type="button"
                 onClick={() => {
-                  if (isThisSelected) {
-                    onRemoveStore(store.productId)
-                  } else {
-                    onAddStore(store, product)
-                    setExpanded(false)
-                  }
+                  if (isThisSelected) onRemoveStore(store.productId)
+                  else { onAddStore(store, product); setExpanded(false) }
                 }}
                 className={`flex items-center justify-between px-3 py-2 rounded-lg border transition-all text-left
                   ${isThisSelected
@@ -211,7 +298,8 @@ function MergedProductCard({
                     : 'border-border hover:border-primary/40 hover:bg-primary/5'}`}
               >
                 <div className="flex items-center gap-2">
-                  <Icon icon="tabler:building-store" className={`w-3.5 h-3.5 flex-shrink-0 ${isThisSelected ? 'text-primary' : 'text-text-muted'}`} />
+                  <Icon icon="tabler:building-store"
+                    className={`w-3.5 h-3.5 flex-shrink-0 ${isThisSelected ? 'text-primary' : 'text-text-muted'}`} />
                   <span className={`text-xs font-semibold ${isThisSelected ? 'text-primary' : 'text-text-primary'}`}>
                     {store.shopName}
                   </span>
@@ -326,10 +414,15 @@ export function SuperSearch({
   const [activeGroupName, setActiveGroupName] = useState('')
   const [browseCategory,  setBrowseCategory]  = useState<CategoryDef | null>(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [sortPrice,       setSortPrice]       = useState<SortDir>(null)
+  const [sortStores,      setSortStores]      = useState<SortDir>(null)
   const searchRef = useRef<HTMLDivElement>(null)
 
   const { data: suggestions = [] } = useSuggestions(query)
   const { data: mergedData, isLoading: loadingProducts } = useMergedProducts(activeSlug)
+
+  // Reset sort when navigating to a new group
+  useEffect(() => { setSortPrice(null); setSortStores(null) }, [activeSlug])
 
   // Close suggestions on outside click
   useEffect(() => {
@@ -350,18 +443,33 @@ export function SuperSearch({
 
   const goBack = useCallback(() => {
     if (activeSlug) {
-      setActiveSlug('')
-      setActiveGroupName('')
-      setQuery('')
+      setActiveSlug(''); setActiveGroupName(''); setQuery('')
     } else if (browseCategory) {
       setBrowseCategory(null)
     }
   }, [activeSlug, browseCategory])
 
+  // Sort products
+  const products = useMemo(() => {
+    const base = mergedData?.products ?? []
+    if (!sortPrice && !sortStores) return base
+    return [...base].sort((a, b) => {
+      if (sortPrice) {
+        const d = a.lowestPrice - b.lowestPrice
+        return sortPrice === 'desc' ? -d : d
+      }
+      if (sortStores) {
+        const d = a.storeCount - b.storeCount
+        return sortStores === 'desc' ? -d : d
+      }
+      return 0
+    })
+  }, [mergedData, sortPrice, sortStores])
+
+  const total = mergedData?.total ?? 0
   const selectedIds = new Set(selectedProducts.map(p => p.productId))
 
   const handleAddStore = useCallback((store: StorePrice, product: MergedProduct) => {
-    // Remove any existing selection for this product (different store)
     const withoutOld = selectedProducts.filter(p =>
       !product.stores.some(s => s.productId === p.productId)
     )
@@ -374,6 +482,7 @@ export function SuperSearch({
         unit: product.unit,
         brand: product.brand?.name ?? '',
         price: store.price,
+        quantity: 1,
         storeName: store.shopName,
       },
     ])
@@ -383,8 +492,12 @@ export function SuperSearch({
     onProductsChange(selectedProducts.filter(p => p.productId !== productId))
   }, [selectedProducts, onProductsChange])
 
-  const products = mergedData?.products ?? []
-  const total    = mergedData?.total ?? 0
+  const handleUpdateQuantity = useCallback((productId: number, qty: number) => {
+    if (qty < 1) return
+    onProductsChange(
+      selectedProducts.map(p => p.productId === productId ? { ...p, quantity: qty } : p)
+    )
+  }, [selectedProducts, onProductsChange])
 
   const screen: 'home' | 'sub' | 'products' =
     activeSlug ? 'products' : browseCategory ? 'sub' : 'home'
@@ -430,12 +543,12 @@ export function SuperSearch({
         )}
       </div>
 
-      {/* ── Home: category grid ── */}
+      {/* ── Home ── */}
       {screen === 'home' && !query.trim() && (
         <CategoryGrid onSelect={cat => { setBrowseCategory(cat); setQuery('') }} />
       )}
 
-      {/* ── Sub: subcategory list ── */}
+      {/* ── Subcategories ── */}
       {screen === 'sub' && browseCategory && !query.trim() && (
         <SubcategoryList
           category={browseCategory}
@@ -444,11 +557,12 @@ export function SuperSearch({
         />
       )}
 
-      {/* ── Products: merged product list ── */}
+      {/* ── Products ── */}
       {screen === 'products' && (
         <div className="flex flex-col gap-3">
-          {/* Breadcrumb */}
-          <div className="flex items-center justify-between">
+
+          {/* Breadcrumb + sort controls */}
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2 flex-wrap">
               <button type="button" onClick={goBack}
                 className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors">
@@ -464,13 +578,31 @@ export function SuperSearch({
                 <span className="font-semibold text-text-primary">
                   {mergedData?.group?.name ?? activeGroupName}
                 </span>
-                {total > 0 && <span className="text-xs text-text-muted">({total} productos)</span>}
+                {total > 0 && <span className="text-xs text-text-muted">({total})</span>}
               </div>
+              {selectedIds.size > 0 && (
+                <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                  {selectedIds.size} en lista
+                </span>
+              )}
             </div>
-            {selectedIds.size > 0 && (
-              <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded-full flex-shrink-0">
-                {selectedIds.size} en lista
-              </span>
+
+            {/* Sort buttons */}
+            {!loadingProducts && products.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <SortButton
+                  label="Precio"
+                  icon="tabler:currency-dollar"
+                  value={sortPrice}
+                  onChange={v => { setSortPrice(v); if (v) setSortStores(null) }}
+                />
+                <SortButton
+                  label="Supermercados"
+                  icon="tabler:building-store"
+                  value={sortStores}
+                  onChange={v => { setSortStores(v); if (v) setSortPrice(null) }}
+                />
+              </div>
             )}
           </div>
 
@@ -501,9 +633,10 @@ export function SuperSearch({
                 <MergedProductCard
                   key={`${p.name}-${p.unit}-${i}`}
                   product={p}
-                  selectedIds={selectedIds}
+                  selectedProducts={selectedProducts}
                   onAddStore={handleAddStore}
                   onRemoveStore={handleRemoveStore}
+                  onUpdateQuantity={handleUpdateQuantity}
                 />
               ))}
             </div>
@@ -512,7 +645,7 @@ export function SuperSearch({
           {!loadingProducts && products.length === 0 && (
             <div className="text-center py-12 text-text-muted text-sm">
               <Icon icon="tabler:search-off" className="w-8 h-8 mx-auto mb-2 opacity-40" />
-              No se encontraron productos en esta categoría.
+              No se encontraron productos.
             </div>
           )}
         </div>
@@ -529,20 +662,21 @@ export function SuperSearch({
   )
 }
 
-// ── Shopping list ──────────────────────────────────────────────────────────
+// ── SuperShoppingList ─────────────────────────────────────────────────────
 
 export function SuperShoppingList({
   products,
   onRemove,
+  onUpdateQuantity,
 }: {
   products: SelectedProduct[]
   onRemove: (productId: number) => void
+  onUpdateQuantity?: (productId: number, qty: number) => void
 }) {
   if (products.length === 0) return null
 
-  const total = products.reduce((s, p) => s + p.price, 0)
+  const total = products.reduce((s, p) => s + p.price * p.quantity, 0)
 
-  // Group by store for display
   const byStore = products.reduce((acc, p) => {
     const key = p.storeName || 'Sin tienda'
     if (!acc[key]) acc[key] = []
@@ -562,39 +696,59 @@ export function SuperShoppingList({
         </span>
       </div>
 
-      {Object.entries(byStore).map(([store, items]) => (
-        <div key={store}>
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <Icon icon="tabler:building-store" className="w-3 h-3 text-text-muted" />
-            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">{store}</span>
-            <span className="text-[10px] text-text-muted">
-              · RD${items.reduce((s, p) => s + p.price, 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            {items.map(p => (
-              <div key={p.productId} className="flex items-center gap-2.5 bg-surface border border-border rounded-lg px-2.5 py-1.5">
-                <div className="w-8 h-8 rounded-md bg-white flex-shrink-0 overflow-hidden border border-border/20">
-                  {p.image
-                    ? <img src={p.image} alt={p.name} className="w-full h-full object-contain p-0.5" />
-                    : <div className="w-full h-full flex items-center justify-center"><Icon icon="tabler:package" className="w-4 h-4 text-text-muted/30" /></div>}
+      {Object.entries(byStore).map(([store, items]) => {
+        const storeTotal = items.reduce((s, p) => s + p.price * p.quantity, 0)
+        return (
+          <div key={store}>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Icon icon="tabler:building-store" className="w-3 h-3 text-text-muted" />
+              <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">{store}</span>
+              <span className="text-[10px] text-text-muted ml-auto tabular-nums">
+                RD${storeTotal.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              {items.map(p => (
+                <div key={p.productId} className="flex items-center gap-2 bg-surface border border-border rounded-lg px-2.5 py-1.5">
+                  <div className="w-8 h-8 rounded-md bg-white flex-shrink-0 overflow-hidden border border-border/20">
+                    {p.image
+                      ? <img src={p.image} alt={p.name} className="w-full h-full object-contain p-0.5" />
+                      : <div className="w-full h-full flex items-center justify-center">
+                          <Icon icon="tabler:package" className="w-4 h-4 text-text-muted/30" />
+                        </div>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-text-primary font-medium truncate">{p.name}</div>
+                    <div className="text-[10px] text-text-muted">{p.unit}</div>
+                  </div>
+                  {/* Inline qty stepper */}
+                  {onUpdateQuantity && (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button type="button" onClick={() => onUpdateQuantity(p.productId, p.quantity - 1)}
+                        disabled={p.quantity <= 1}
+                        className="w-5 h-5 rounded border border-border flex items-center justify-center text-text-muted hover:text-primary hover:border-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                        <Icon icon="tabler:minus" className="w-2.5 h-2.5" />
+                      </button>
+                      <span className="text-xs font-semibold text-text-primary tabular-nums w-5 text-center">{p.quantity}</span>
+                      <button type="button" onClick={() => onUpdateQuantity(p.productId, p.quantity + 1)}
+                        className="w-5 h-5 rounded border border-border flex items-center justify-center text-text-muted hover:text-primary hover:border-primary transition-colors">
+                        <Icon icon="tabler:plus" className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  )}
+                  <span className="text-xs font-bold text-primary tabular-nums flex-shrink-0 ml-1">
+                    RD${(p.price * p.quantity).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                  </span>
+                  <button type="button" onClick={() => onRemove(p.productId)}
+                    className="p-0.5 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors flex-shrink-0">
+                    <Icon icon="tabler:x" className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs text-text-primary font-medium truncate">{p.name}</div>
-                  <div className="text-[10px] text-text-muted">{p.unit}</div>
-                </div>
-                <span className="text-xs font-bold text-primary tabular-nums flex-shrink-0">
-                  RD${p.price.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                </span>
-                <button type="button" onClick={() => onRemove(p.productId)}
-                  className="p-0.5 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors flex-shrink-0">
-                  <Icon icon="tabler:x" className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -617,8 +771,8 @@ export function SuperPickerInline({
   const handleAdd = () => {
     const items = selected.map(p => ({
       tipo: 'GASTO' as const,
-      concepto: p.name,
-      montoPlaneado: p.price,
+      concepto: p.quantity > 1 ? `${p.name} ×${p.quantity}` : p.name,
+      montoPlaneado: p.price * p.quantity,
       productoExterno: {
         productId: p.productId,
         name: p.name,
@@ -632,7 +786,12 @@ export function SuperPickerInline({
     onSubmit(items)
   }
 
-  const total = selected.reduce((s, p) => s + p.price, 0)
+  const updateQty = (productId: number, qty: number) => {
+    if (qty < 1) return
+    setSelected(prev => prev.map(p => p.productId === productId ? { ...p, quantity: qty } : p))
+  }
+
+  const total = selected.reduce((s, p) => s + p.price * p.quantity, 0)
 
   return (
     <div className="flex flex-col bg-surface border border-border rounded-xl overflow-hidden">
@@ -662,7 +821,11 @@ export function SuperPickerInline({
         </div>
         <div className="lg:w-72 flex-shrink-0 flex flex-col p-4 bg-background/30">
           {selected.length > 0
-            ? <SuperShoppingList products={selected} onRemove={id => setSelected(prev => prev.filter(p => p.productId !== id))} />
+            ? <SuperShoppingList
+                products={selected}
+                onRemove={id => setSelected(prev => prev.filter(p => p.productId !== id))}
+                onUpdateQuantity={updateQty}
+              />
             : <div className="flex flex-col items-center justify-center flex-1 text-center gap-3 py-10">
                 <div className="w-14 h-14 rounded-full bg-surface-elevated flex items-center justify-center">
                   <Icon icon="tabler:shopping-cart-off" className="w-7 h-7 text-text-muted opacity-40" />
@@ -680,8 +843,9 @@ export function SuperPickerInline({
         <div className="text-sm text-text-secondary">
           {selected.length > 0 && (
             <span>
-              <strong className="text-text-primary tabular-nums">{selected.length}</strong> producto{selected.length !== 1 ? 's' : ''}{' '}
-              · <strong className="text-primary tabular-nums">
+              <strong className="text-text-primary tabular-nums">{selected.length}</strong>{' '}
+              producto{selected.length !== 1 ? 's' : ''} ·{' '}
+              <strong className="text-primary tabular-nums">
                 RD${total.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
               </strong>
             </span>
