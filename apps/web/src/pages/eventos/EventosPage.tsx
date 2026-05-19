@@ -606,15 +606,15 @@ function WeekStrip({ ws, eventos, selectedStr, onSelectDay }: {
             <button key={ds} type="button" onClick={() => onSelectDay(ds)}
               className={`flex flex-col items-center py-4 px-1 min-h-[110px] transition-colors border-r border-border/40 last:border-r-0
                 ${isSel
-                  ? 'bg-primary/15 ring-1 ring-inset ring-primary/25'
+                  ? 'bg-primary/20 ring-1 ring-inset ring-primary/30'
                   : isToday
-                    ? 'bg-primary/8 hover:bg-primary/12'
-                    : 'bg-primary/[0.03] hover:bg-primary/10'}`}>
+                    ? 'bg-primary/10 hover:bg-primary/15'
+                    : 'bg-primary/5 hover:bg-primary/10'}`}>
               <span className={`text-[10px] uppercase mb-1 font-semibold tracking-wide
                 ${isToday ? 'text-primary' : 'text-text-muted'}`}>{DIAS_SEMANA[d.getDay()]}</span>
               <span className={`w-7 h-7 flex items-center justify-center rounded-full text-sm font-bold mb-2
                 ${isToday ? 'bg-primary text-white shadow-sm shadow-primary/40'
-                  : isSel ? 'bg-primary/20 text-primary ring-2 ring-primary/40'
+                  : isSel ? 'bg-primary/25 text-primary ring-2 ring-primary/40'
                   : 'text-text-secondary'}`}>
                 {d.getDate()}
               </span>
@@ -703,7 +703,7 @@ function CalendarGrid({ year, month, eventos, selectedDay, onSelectDay, rangeSta
                   : isRangeStart || isRangeEnd
                     ? 'bg-primary/20 ring-1 ring-inset ring-primary/35'
                     : inRange
-                      ? isToday ? 'bg-primary/12' : 'bg-primary/[0.07] hover:bg-primary/10'
+                      ? isToday ? 'bg-primary/15' : 'bg-primary/10 hover:bg-primary/15'
                       : 'hover:bg-white/5'
                 }`}
             >
