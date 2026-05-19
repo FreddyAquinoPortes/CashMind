@@ -453,6 +453,8 @@ interface RForm {
   tipoCombustible: string; porcentajePropio: string
   rendimientoManual: string; unidadRendimiento: 'mpg' | 'km_l' | 'km_m3'
   crearEvento: boolean; eventoFechaInicio: string; eventoPerpetuo: boolean; eventoFechaFin: string
+  // Round-trip fields
+  esIdaVuelta: boolean; distanciaIda: string; distanciaVuelta: string
 }
 const EMPTY_R: RForm = {
   vehiculoId: '', nombre: '', distanciaKm: '',
@@ -460,6 +462,7 @@ const EMPTY_R: RForm = {
   tipoCombustible: 'Gasolina Regular', porcentajePropio: '100',
   rendimientoManual: '', unidadRendimiento: 'mpg',
   crearEvento: false, eventoFechaInicio: '', eventoPerpetuo: true, eventoFechaFin: '',
+  esIdaVuelta: false, distanciaIda: '', distanciaVuelta: '',
 }
 
 function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, preciosPorTipo }: {
@@ -468,8 +471,15 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
   onSubmit(d: RForm): void; loading: boolean; onClose(): void
 }) {
   const [f, setF] = useState<RForm>(initial ?? EMPTY_R)
+  // Single-distance map
   const [showMap, setShowMap] = useState(false)
   const mapSectionRef = useRef<HTMLDivElement>(null)
+  // Round-trip maps
+  const [showMapIda, setShowMapIda] = useState(false)
+  const [showMapVuelta, setShowMapVuelta] = useState(false)
+  const mapIdaRef = useRef<HTMLDivElement>(null)
+  const mapVueltaRef = useRef<HTMLDivElement>(null)
+
   const eventoSectionRef = useRef<HTMLDivElement>(null)
   const upd = (k: keyof RForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(p => ({ ...p, [k]: e.target.value }))
 
@@ -478,6 +488,18 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
       setTimeout(() => mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80)
     }
   }, [showMap])
+
+  useEffect(() => {
+    if (showMapIda && mapIdaRef.current) {
+      setTimeout(() => mapIdaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80)
+    }
+  }, [showMapIda])
+
+  useEffect(() => {
+    if (showMapVuelta && mapVueltaRef.current) {
+      setTimeout(() => mapVueltaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80)
+    }
+  }, [showMapVuelta])
 
   const frecVal = Number(f.frecuenciaValor) || 0
   const dist = Number(f.distanciaKm) || 0
@@ -559,48 +581,206 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
         return null
       })()}
 
-      {/* Distancia + toggle mapa */}
-      <div className="flex flex-col gap-2 text-sm text-text-secondary">
-        <div className="flex items-center justify-between">
-          <span>Distancia (km) *</span>
-          <button
-            type="button"
-            onClick={() => setShowMap(p => !p)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors
-              ${showMap
-                ? 'border-primary bg-primary text-white'
-                : 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 hover:border-primary'}`}>
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round"
-                d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-            </svg>
-            {showMap ? 'Cerrar mapa' : 'Calcular con mapa'}
-          </button>
+      {/* Toggle ida y vuelta */}
+      <label className="flex items-center gap-2.5 cursor-pointer select-none py-0.5">
+        <div
+          onClick={() => {
+            const next = !f.esIdaVuelta
+            setF(p => ({
+              ...p,
+              esIdaVuelta: next,
+              distanciaIda: next ? p.distanciaKm : '',
+              distanciaVuelta: '',
+              distanciaKm: next ? p.distanciaKm : (p.distanciaIda || p.distanciaKm),
+            }))
+            setShowMap(false); setShowMapIda(false); setShowMapVuelta(false)
+          }}
+          className={`relative w-10 h-5 rounded-full border-2 transition-colors cursor-pointer flex-shrink-0
+            ${f.esIdaVuelta ? 'bg-primary border-primary' : 'bg-transparent border-border hover:border-primary/60'}`}>
+          <span className={`absolute top-0.5 w-3 h-3 rounded-full transition-all shadow
+            ${f.esIdaVuelta ? 'left-5 bg-white' : 'left-0.5 bg-border'}`} />
         </div>
-        <input
-          required type="number" step="0.1" min={0.1}
-          value={f.distanciaKm} onChange={upd('distanciaKm')}
-          className="input" placeholder="125"
-        />
-      </div>
+        <span className="text-sm text-text-secondary">
+          🔄 Ruta de ida y vuelta
+          <span className="text-text-muted font-normal ml-1">(distancias separadas por trayecto)</span>
+        </span>
+      </label>
 
-      {/* Mapa inline */}
-      {showMap && (
-        <div ref={mapSectionRef} className="border border-border rounded-xl overflow-hidden bg-background">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-surface">
-            <span className="text-xs font-medium text-text-secondary">🗺️ Selecciona origen y destino</span>
-            <button type="button" onClick={() => setShowMap(false)}
-              className="text-text-muted hover:text-text-primary text-sm leading-none">&times;</button>
-          </div>
-          <div className="p-4">
-            <RouteMapPicker
-              geoCtx={geoCtx}
-              onConfirm={(km, nombre) => {
-                setF(p => ({ ...p, distanciaKm: km.toFixed(1), nombre: p.nombre || nombre }))
-                setShowMap(false)
-              }}
+      {/* ── Distancia simple ─────────────────────────────────────────────── */}
+      {!f.esIdaVuelta && (
+        <>
+          <div className="flex flex-col gap-2 text-sm text-text-secondary">
+            <div className="flex items-center justify-between">
+              <span>Distancia (km) *</span>
+              <button
+                type="button"
+                onClick={() => setShowMap(p => !p)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors
+                  ${showMap
+                    ? 'border-primary bg-primary text-white'
+                    : 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 hover:border-primary'}`}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                </svg>
+                {showMap ? 'Cerrar mapa' : 'Calcular con mapa'}
+              </button>
+            </div>
+            <input
+              required type="number" step="0.1" min={0.1}
+              value={f.distanciaKm} onChange={upd('distanciaKm')}
+              className="input" placeholder="125"
             />
           </div>
+          {showMap && (
+            <div ref={mapSectionRef} className="border border-border rounded-xl overflow-hidden bg-background">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-surface">
+                <span className="text-xs font-medium text-text-secondary">🗺️ Selecciona origen y destino</span>
+                <button type="button" onClick={() => setShowMap(false)}
+                  className="text-text-muted hover:text-text-primary text-sm leading-none">&times;</button>
+              </div>
+              <div className="p-4">
+                <RouteMapPicker
+                  geoCtx={geoCtx}
+                  onConfirm={(km, nombre) => {
+                    setF(p => ({ ...p, distanciaKm: km.toFixed(1), nombre: p.nombre || nombre }))
+                    setShowMap(false)
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Distancia ida y vuelta ────────────────────────────────────────── */}
+      {f.esIdaVuelta && (
+        <div className="flex flex-col gap-3 pl-3 border-l-2 border-primary/30">
+          {/* Ida */}
+          <div className="flex flex-col gap-2 text-sm text-text-secondary">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-success flex-shrink-0" />
+                Distancia ida (km) *
+              </span>
+              <button
+                type="button"
+                onClick={() => { setShowMapIda(p => !p); setShowMapVuelta(false) }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors
+                  ${showMapIda
+                    ? 'border-primary bg-primary text-white'
+                    : 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 hover:border-primary'}`}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                </svg>
+                {showMapIda ? 'Cerrar mapa' : 'Calcular con mapa'}
+              </button>
+            </div>
+            <input
+              required type="number" step="0.1" min={0.1}
+              value={f.distanciaIda}
+              onChange={e => setF(p => {
+                const ida = e.target.value
+                const total = (Number(ida) || 0) + (Number(p.distanciaVuelta) || 0)
+                return { ...p, distanciaIda: ida, distanciaKm: total > 0 ? String(total) : '' }
+              })}
+              className="input" placeholder="Ej. 65"
+            />
+          </div>
+          {showMapIda && (
+            <div ref={mapIdaRef} className="border border-border rounded-xl overflow-hidden bg-background">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-surface">
+                <span className="text-xs font-medium text-text-secondary">🗺️ Trayecto de <strong>ida</strong> — origen → destino</span>
+                <button type="button" onClick={() => setShowMapIda(false)}
+                  className="text-text-muted hover:text-text-primary text-sm leading-none">&times;</button>
+              </div>
+              <div className="p-4">
+                <RouteMapPicker
+                  geoCtx={geoCtx}
+                  onConfirm={(km, nombre) => {
+                    setF(p => {
+                      const total = km + (Number(p.distanciaVuelta) || 0)
+                      return { ...p, distanciaIda: km.toFixed(1), distanciaKm: String(total.toFixed(1)), nombre: p.nombre || nombre }
+                    })
+                    setShowMapIda(false)
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Vuelta */}
+          <div className="flex flex-col gap-2 text-sm text-text-secondary">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-danger flex-shrink-0" />
+                Distancia vuelta (km) *
+                <span className="text-text-muted font-normal text-xs">(puede diferir)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => { setShowMapVuelta(p => !p); setShowMapIda(false) }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors
+                  ${showMapVuelta
+                    ? 'border-primary bg-primary text-white'
+                    : 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 hover:border-primary'}`}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                </svg>
+                {showMapVuelta ? 'Cerrar mapa' : 'Calcular con mapa'}
+              </button>
+            </div>
+            <input
+              required type="number" step="0.1" min={0.1}
+              value={f.distanciaVuelta}
+              onChange={e => setF(p => {
+                const vuelta = e.target.value
+                const total = (Number(p.distanciaIda) || 0) + (Number(vuelta) || 0)
+                return { ...p, distanciaVuelta: vuelta, distanciaKm: total > 0 ? String(total) : '' }
+              })}
+              className="input" placeholder="Ej. 62"
+            />
+          </div>
+          {showMapVuelta && (
+            <div ref={mapVueltaRef} className="border border-border rounded-xl overflow-hidden bg-background">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-surface">
+                <span className="text-xs font-medium text-text-secondary">🗺️ Trayecto de <strong>vuelta</strong> — destino → origen</span>
+                <button type="button" onClick={() => setShowMapVuelta(false)}
+                  className="text-text-muted hover:text-text-primary text-sm leading-none">&times;</button>
+              </div>
+              <div className="p-4">
+                <RouteMapPicker
+                  geoCtx={geoCtx}
+                  onConfirm={(km, nombre) => {
+                    setF(p => {
+                      const total = (Number(p.distanciaIda) || 0) + km
+                      return { ...p, distanciaVuelta: km.toFixed(1), distanciaKm: String(total.toFixed(1)), nombre: p.nombre || nombre }
+                    })
+                    setShowMapVuelta(false)
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Total resumen */}
+          {(Number(f.distanciaIda) > 0 || Number(f.distanciaVuelta) > 0) && (
+            <div className="bg-surface-elevated border border-border/60 rounded-lg px-3 py-2.5 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-text-muted">🔄 Total por viaje completo:</span>
+              <span className="text-text-secondary">
+                <strong>{f.distanciaIda || '0'} km</strong> ida
+                <span className="mx-1.5 text-text-muted">+</span>
+                <strong>{f.distanciaVuelta || '0'} km</strong> vuelta
+                <span className="mx-1.5 text-text-muted">=</span>
+              </span>
+              <span className="font-bold text-primary">
+                {((Number(f.distanciaIda) || 0) + (Number(f.distanciaVuelta) || 0)).toFixed(1)} km
+              </span>
+              <span className="text-text-muted">por viaje</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -1078,6 +1258,9 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
                 </div>
                 <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-text-muted">
                   <span>📍 {fmtDec(Number(r.distanciaKm), 1)} km</span>
+                  {(r as any).distanciaIda > 0 && (r as any).distanciaVuelta > 0 && (
+                    <span className="text-primary/70">🔄 {fmtDec(Number((r as any).distanciaIda), 1)} + {fmtDec(Number((r as any).distanciaVuelta), 1)} km</span>
+                  )}
                   <span>🔁 {fVal}× /{fUnidad} → {fmtDec(kmMes, 0)} km/mes</span>
                   <span>👤 {r.porcentajePropio}% propio</span>
                   {r.vehiculo && <span>🚗 {r.vehiculo.marca} {r.vehiculo.modelo}</span>}
@@ -1120,6 +1303,7 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
               unidadRendimiento: ((modal.ruta as any).unidadRendimiento ?? 'mpg') as 'mpg' | 'km_l' | 'km_m3',
               diasSemana: modal.ruta.diasSemana ?? '',
               crearEvento: false, eventoFechaInicio: '', eventoPerpetuo: true, eventoFechaFin: '',
+              esIdaVuelta: false, distanciaIda: '', distanciaVuelta: '',
             }}
             onSubmit={f => update.mutate({ id: modal.ruta.id, d: toPayload(f), f })} />
         </Modal>
