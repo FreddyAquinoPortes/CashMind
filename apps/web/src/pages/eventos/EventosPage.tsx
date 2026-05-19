@@ -605,10 +605,17 @@ function WeekStrip({ ws, eventos, selectedStr, onSelectDay }: {
           return (
             <button key={ds} type="button" onClick={() => onSelectDay(ds)}
               className={`flex flex-col items-center py-4 px-1 min-h-[110px] transition-colors border-r border-border/40 last:border-r-0
-                ${isSel ? 'bg-primary/10' : 'hover:bg-white/5'}`}>
-              <span className="text-[10px] text-text-muted uppercase mb-1">{DIAS_SEMANA[d.getDay()]}</span>
+                ${isSel
+                  ? 'bg-primary/15 ring-1 ring-inset ring-primary/25'
+                  : isToday
+                    ? 'bg-primary/8 hover:bg-primary/12'
+                    : 'bg-primary/[0.03] hover:bg-primary/10'}`}>
+              <span className={`text-[10px] uppercase mb-1 font-semibold tracking-wide
+                ${isToday ? 'text-primary' : 'text-text-muted'}`}>{DIAS_SEMANA[d.getDay()]}</span>
               <span className={`w-7 h-7 flex items-center justify-center rounded-full text-sm font-bold mb-2
-                ${isToday ? 'bg-primary text-white' : isSel ? 'text-primary' : 'text-text-secondary'}`}>
+                ${isToday ? 'bg-primary text-white shadow-sm shadow-primary/40'
+                  : isSel ? 'bg-primary/20 text-primary ring-2 ring-primary/40'
+                  : 'text-text-secondary'}`}>
                 {d.getDate()}
               </span>
               <div className="flex flex-col gap-0.5 w-full px-1">
@@ -692,18 +699,19 @@ function CalendarGrid({ year, month, eventos, selectedDay, onSelectDay, rangeSta
               onClick={() => onSelectDay(isSelected ? null : day)}
               className={`min-h-[72px] border-b border-r border-border/40 p-1.5 text-left flex flex-col transition-colors
                 ${isSelected
-                  ? 'bg-primary/15'
+                  ? 'bg-primary/15 ring-1 ring-inset ring-primary/25'
                   : isRangeStart || isRangeEnd
-                    ? 'bg-primary/25 ring-1 ring-inset ring-primary/40'
+                    ? 'bg-primary/20 ring-1 ring-inset ring-primary/35'
                     : inRange
-                      ? 'bg-primary/[0.1]'
+                      ? isToday ? 'bg-primary/12' : 'bg-primary/[0.07] hover:bg-primary/10'
                       : 'hover:bg-white/5'
                 }`}
             >
               <span className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full mb-1
-                ${isToday ? 'bg-primary text-white'
-                  : isSelected ? 'text-primary'
-                  : isRangeStart || isRangeEnd ? 'bg-primary/30 text-primary font-extrabold'
+                ${isToday ? 'bg-primary text-white shadow-sm shadow-primary/40'
+                  : isSelected ? 'bg-primary/20 text-primary ring-2 ring-primary/40'
+                  : isRangeStart || isRangeEnd ? 'bg-primary/25 text-primary font-extrabold'
+                  : inRange ? 'text-text-primary'
                   : 'text-text-secondary'}`}>
                 {day}
               </span>
@@ -1346,8 +1354,8 @@ export function EventosPage() {
                         setSelectedDayStr(null)
                       }
                     }}
-                    rangeStart={periodType === 'custom' ? rangeStartStr : undefined}
-                    rangeEnd={periodType === 'custom' ? rangeEndStr : undefined}
+                    rangeStart={rangeStartStr}
+                    rangeEnd={rangeEndStr}
                   />
                 </div>
               ))}

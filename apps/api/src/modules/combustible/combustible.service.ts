@@ -283,11 +283,18 @@ export class CombustibleService {
   }
 
   async removeRuta(id: string) {
-    // Delete all non-executed events linked to this route before removing it
+    const ruta = await prisma.ruta.findUnique({ where: { id } })
+    if (!ruta) throw Object.assign(new Error('Ruta no encontrada'), { status: 404 })
+
+    // Delete non-executed events: match by rutaId (new) OR by auto-generated name (legacy pre-rutaId events)
+    const nombreEvento = `⛽ ${ruta.nombre}`
     await prisma.evento.deleteMany({
       where: {
-        rutaId: id,
         estado: { notIn: ['EJECUTADO'] },
+        OR: [
+          { rutaId: id },
+          { nombre: nombreEvento },
+        ],
       },
     })
     return prisma.ruta.delete({ where: { id } })
