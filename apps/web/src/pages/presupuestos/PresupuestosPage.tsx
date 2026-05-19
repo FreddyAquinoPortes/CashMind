@@ -8,8 +8,7 @@ import { Icon } from '@iconify/react'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
 import { useFmt } from '../../lib/useFmt'
-import { SuperSearch, SuperShoppingList } from '../../components/supermercado/SuperSearch'
-import type { SelectedProduct } from '../../components/supermercado/SuperSearch'
+import { SuperPickerInline } from '../../components/supermercado/SuperSearch'
 
 const FmtCtx = createContext<(n: number, isTotal?: boolean) => string>(() => '')
 
@@ -698,106 +697,6 @@ function AtomicoView({
   )
 }
 
-// ── Supermercado product picker modal ─────────────────────────────────────
-function SuperPickerModal({
-  presupuestoId,
-  loading,
-  onClose,
-  onSubmit,
-}: {
-  presupuestoId: string
-  loading: boolean
-  onClose: () => void
-  onSubmit: (items: object[]) => void
-}) {
-  const [selected, setSelected] = useState<SelectedProduct[]>([])
-
-  const handleAdd = () => {
-    const items = selected.map(p => ({
-      tipo: 'GASTO' as const,
-      concepto: p.name,
-      montoPlaneado: p.price,
-      productoExterno: {
-        productId: p.productId,
-        name: p.name,
-        image: p.image,
-        unit: p.unit,
-        brand: p.brand,
-        price: p.price,
-      },
-    }))
-    onSubmit(items)
-  }
-
-  const total = selected.reduce((s, p) => s + p.price, 0)
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-surface border border-border rounded-xl shadow-2xl flex flex-col max-h-[90vh] w-full max-w-4xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <Icon icon="tabler:building-store" className="w-5 h-5 text-primary" />
-            <h2 className="text-base font-semibold text-text-primary">Buscar productos de supermercado</h2>
-          </div>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">&times;</button>
-        </div>
-
-        {/* Body: two panels */}
-        <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
-          {/* Left: Search */}
-          <div className="flex-1 overflow-y-auto p-6 border-r border-border">
-            <SuperSearch
-              selectedProducts={selected}
-              onProductsChange={setSelected}
-            />
-          </div>
-
-          {/* Right: Shopping list */}
-          <div className="md:w-80 overflow-y-auto p-4 bg-background/50 flex flex-col gap-4">
-            <SuperShoppingList
-              products={selected}
-              onRemove={(id) => setSelected(prev => prev.filter(p => p.productId !== id))}
-            />
-            {selected.length === 0 && (
-              <div className="text-center text-text-muted text-sm py-8">
-                <Icon icon="tabler:shopping-cart-off" className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                <p>Selecciona productos para agregarlos a tu lista</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-border flex-shrink-0">
-          <div className="text-sm text-text-secondary">
-            {selected.length > 0 && (
-              <span>
-                <strong className="text-text-primary">{selected.length}</strong> productos ·{' '}
-                <strong className="text-primary tabular-nums">
-                  RD${total.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                </strong>
-              </span>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
-            <button
-              type="button"
-              onClick={handleAdd}
-              disabled={loading || selected.length === 0}
-              className="btn-primary flex items-center gap-2 disabled:opacity-50"
-            >
-              <Icon icon="tabler:plus" className="w-4 h-4" />
-              {loading ? 'Agregando...' : `Agregar ${selected.length} productos`}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Page
 // ─────────────────────────────────────────────────────────────────────────────
@@ -810,6 +709,7 @@ export function PresupuestosPage() {
   const [tab, setTab] = useState<'planificar' | 'ejecutar' | 'historial'>('planificar')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [superPickerFor, setSuperPickerFor] = useState<string | null>(null)
   const [modal, setModal] = useState<
     | { type: 'newPresupuesto' }
     | { type: 'editPresupuesto'; presupuesto: Presupuesto }
@@ -818,7 +718,6 @@ export function PresupuestosPage() {
     | { type: 'sugerencias'; presupuestoId: string; sugerencias: Sugerencia[] }
     | { type: 'ejecutarLinea'; linea: LineaPresupuesto; presupuestoId: string }
     | { type: 'ejecutarAtomico'; presupuesto: Presupuesto }
-    | { type: 'superPicker'; presupuestoId: string }
     | null
   >(null)
 
@@ -916,7 +815,7 @@ export function PresupuestosPage() {
       api.post(`/clientes/${clienteId}/presupuestos/${presupuestoId}/lineas/bulk`, { items }),
     onSuccess: (_res, vars) => {
       invalidate()
-      setModal(null)
+      setSuperPickerFor(null)
       showToast(`${vars.items.length} productos agregados`)
     },
     onError: () => showToast('Error al agregar productos', 'error'),
@@ -1088,15 +987,22 @@ export function PresupuestosPage() {
 
               {/* ── ATÓMICO: checklist view (no tabs) ── */}
               {presupuesto.tipo === 'ATOMICO' && (
-                <AtomicoView
-                  presupuesto={presupuesto}
-                  onToggle={(lineaId, incluido) => toggleIncluido.mutate({ lineaId, incluido })}
-                  onDelete={id => deleteLinea.mutate(id)}
-                  onAddItem={() => setModal({ type: 'newLinea', presupuestoId: presupuesto.id, tipoDefecto: 'GASTO' })}
-                  onSearchProducts={presupuesto.esSupermercado ? () => setModal({ type: 'superPicker', presupuestoId: presupuesto.id }) : undefined}
-                  onEjecutarTodo={() => setModal({ type: 'ejecutarAtomico', presupuesto })}
-                  ejecutando={ejecutarAtomico.isPending}
-                />
+                superPickerFor === presupuesto.id
+                  ? <SuperPickerInline
+                      presupuestoNombre={presupuesto.nombre}
+                      loading={addBulkLineas.isPending}
+                      onBack={() => setSuperPickerFor(null)}
+                      onSubmit={items => addBulkLineas.mutate({ presupuestoId: presupuesto.id, items })}
+                    />
+                  : <AtomicoView
+                      presupuesto={presupuesto}
+                      onToggle={(lineaId, incluido) => toggleIncluido.mutate({ lineaId, incluido })}
+                      onDelete={id => deleteLinea.mutate(id)}
+                      onAddItem={() => setModal({ type: 'newLinea', presupuestoId: presupuesto.id, tipoDefecto: 'GASTO' })}
+                      onSearchProducts={presupuesto.esSupermercado ? () => setSuperPickerFor(presupuesto.id) : undefined}
+                      onEjecutarTodo={() => setModal({ type: 'ejecutarAtomico', presupuesto })}
+                      ejecutando={ejecutarAtomico.isPending}
+                    />
               )}
 
               {/* ── NORMAL: tabs ── */}
@@ -1426,15 +1332,6 @@ export function PresupuestosPage() {
             onSubmit={d => ejecutarLinea.mutate({ lineaId: modal.linea.id, d })}
           />
         </Modal>
-      )}
-
-      {modal?.type === 'superPicker' && (
-        <SuperPickerModal
-          presupuestoId={modal.presupuestoId}
-          loading={addBulkLineas.isPending}
-          onClose={() => setModal(null)}
-          onSubmit={(items) => addBulkLineas.mutate({ presupuestoId: modal.presupuestoId, items })}
-        />
       )}
 
       {modal?.type === 'ejecutarAtomico' && (() => {
