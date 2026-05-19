@@ -157,9 +157,10 @@ export interface Persona {
 }
 
 // ── Deudas ────────────────────────────────────────────────────────────────
-export type TipoDeuda   = 'BANCARIA' | 'TARJETA' | 'PERSONAL' | 'COMERCIAL' | 'OTRA'
-export type TipoPlazo   = 'FIJO' | 'FLEXIBLE'
-export type EstadoDeuda = 'ACTIVA' | 'SALDADA' | 'EN_MORA' | 'RENEGOCIADA' | 'CANCELADA'
+export type TipoDeuda      = 'BANCARIA' | 'TARJETA' | 'PERSONAL' | 'COMERCIAL' | 'OTRA'
+export type TipoPlazo      = 'FIJO' | 'FLEXIBLE'
+export type EstadoDeuda    = 'ACTIVA' | 'SALDADA' | 'EN_MORA' | 'RENEGOCIADA' | 'CANCELADA'
+export type DireccionDeuda = 'DEBO_YO' | 'ME_DEBEN'
 
 export interface Deuda {
   id: string
@@ -169,6 +170,9 @@ export interface Deuda {
   concepto: string | null
   acreedorTexto: string | null
   tipo: TipoDeuda
+  direccion: DireccionDeuda
+  cuentaOrigenId: string | null
+  tarjetaOrigenId: string | null
   montoOriginal: string
   saldoActual: string
   moneda: string

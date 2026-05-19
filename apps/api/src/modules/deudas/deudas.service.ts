@@ -87,6 +87,9 @@ export class DeudasService {
         clienteId,
         concepto: d.concepto,
         tipo: d.tipo,
+        direccion: d.direccion ?? 'DEBO_YO',
+        cuentaOrigenId: d.cuentaOrigenId ?? null,
+        tarjetaOrigenId: d.tarjetaOrigenId ?? null,
         montoOriginal: d.montoOriginal,
         saldoActual: d.saldoActual ?? d.montoOriginal,
         moneda: d.moneda ?? 'DOP',
@@ -158,6 +161,9 @@ export class DeudasService {
       data: {
         ...(d.concepto    !== undefined && { concepto: d.concepto }),
         ...(d.tipo        !== undefined && { tipo: d.tipo }),
+        ...('direccion'       in d && { direccion: d.direccion }),
+        ...('cuentaOrigenId'  in d && { cuentaOrigenId: d.cuentaOrigenId ?? null }),
+        ...('tarjetaOrigenId' in d && { tarjetaOrigenId: d.tarjetaOrigenId ?? null }),
         ...(d.montoOriginal !== undefined && { montoOriginal: d.montoOriginal }),
         ...(d.saldoActual !== undefined && { saldoActual: d.saldoActual }),
         ...(d.moneda      !== undefined && { moneda: d.moneda }),
@@ -260,6 +266,74 @@ export class DeudasService {
       where: { deudaId },
       orderBy: { fecha: 'desc' },
     })
+  }
+
+  /**
+   * Compensate mutual debts between a client and a persona.
+   * - Sums all ACTIVA DEBO_YO saldos  (client owes persona)
+   * - Sums all ACTIVA ME_DEBEN saldos  (persona owes client)
+   * - Marks all of them SALDADA
+   * - If there's a remaining net, creates a new debt in the appropriate direction
+   * Returns a summary so the frontend can show what happened.
+   */
+  async compensar(clienteId: string, personaId: string) {
+    const activas = await prisma.deuda.findMany({
+      where: { clienteId, personaId, estado: 'ACTIVA' },
+    })
+
+    if (activas.length === 0) {
+      throw Object.assign(new Error('No hay deudas activas para compensar con esta persona.'), { status: 400 })
+    }
+
+    const deboYo  = activas.filter((d: any) => (d.direccion ?? 'DEBO_YO') === 'DEBO_YO')
+    const meDeben = activas.filter((d: any) => (d.direccion ?? 'DEBO_YO') === 'ME_DEBEN')
+
+    if (deboYo.length === 0 || meDeben.length === 0) {
+      throw Object.assign(new Error('Se necesitan deudas en ambas direcciones para compensar.'), { status: 400 })
+    }
+
+    const totalDeboYo  = deboYo.reduce((s: number, d: any)  => s + Number(d.saldoActual), 0)
+    const totalMeDeben = meDeben.reduce((s: number, d: any) => s + Number(d.saldoActual), 0)
+    const net = Math.round((totalMeDeben - totalDeboYo) * 100) / 100
+
+    await prisma.$transaction(async (trx) => {
+      // Mark all active mutual debts as SALDADA
+      const ids = activas.map((d: any) => d.id)
+      await trx.deuda.updateMany({
+        where: { id: { in: ids } },
+        data: { saldoActual: 0, estado: 'SALDADA' },
+      })
+      // Delete pending cuota events for those debts
+      await trx.evento.deleteMany({ where: { deudaId: { in: ids }, estado: 'PLANIFICADO' } })
+
+      // Create remaining-net debt if necessary
+      if (Math.abs(net) >= 0.01) {
+        const direccionNeta = net > 0 ? 'ME_DEBEN' : 'DEBO_YO'
+        await (trx as any).deuda.create({
+          data: {
+            clienteId,
+            personaId,
+            concepto: `Saldo neto tras compensación`,
+            tipo: 'PERSONAL',
+            direccion: direccionNeta,
+            montoOriginal: Math.abs(net),
+            saldoActual: Math.abs(net),
+            moneda: activas[0].moneda,
+            fechaInicio: new Date(),
+            tipoPlazo: 'FLEXIBLE',
+            estado: 'ACTIVA',
+          },
+        })
+      }
+    })
+
+    return {
+      totalDeboYo,
+      totalMeDeben,
+      net,          // positive = person still owes me, negative = I still owe them, 0 = fully settled
+      deudasSaldadas: activas.length,
+      quedaDeudaNeta: Math.abs(net) >= 0.01,
+    }
   }
 
   async amortizacion(deudaId: string) {

@@ -3,8 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
 import { useFmt } from '../../lib/useFmt'
-import type { Deuda, TipoDeuda, TipoPlazo, EstadoDeuda, Persona, PagoDeuda, Categoria } from '../../lib/types'
+import type {
+  Deuda, DireccionDeuda, TipoDeuda, TipoPlazo, EstadoDeuda,
+  Persona, PagoDeuda, Categoria, CuentaBancaria, TarjetaCredito,
+} from '../../lib/types'
 import { TIPOS_DEUDA, MONEDAS } from '../../lib/constants'
+import { Icon } from '@iconify/react'
 import { PlusIcon, ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 
 const ESTADO_COLORS: Record<EstadoDeuda, string> = {
@@ -20,7 +24,6 @@ function personaDisplayName(p: { nombre: string; apellido: string | null; tipo: 
   return p.tipo === 'persona' && p.apellido ? `${p.nombre} ${p.apellido}` : p.nombre
 }
 
-// Devuelve YYYY-MM-DD en hora local (evita el desfase UTC)
 const toLocalDateStr = (d = new Date()) => {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -28,7 +31,6 @@ const toLocalDateStr = (d = new Date()) => {
   return `${y}-${m}-${day}`
 }
 
-// ── Toast ──────────────────────────────────────────────────────────────────
 function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
   return (
     <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-xl shadow-2xl text-sm font-medium
@@ -38,7 +40,6 @@ function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
   )
 }
 
-// ── Modal ──────────────────────────────────────────────────────────────────
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -53,7 +54,6 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   )
 }
 
-// ── Progress Bar ───────────────────────────────────────────────────────────
 function DeudaProgress({ saldo, original, compact }: { saldo: string; original: string; compact?: boolean }) {
   const fmt = useFmt()
   const s = parseFloat(String(saldo))
@@ -86,19 +86,22 @@ function DeudaProgress({ saldo, original, compact }: { saldo: string; original: 
 
 // ── Deuda Form ─────────────────────────────────────────────────────────────
 interface DeudaForm {
-  personaId: string; concepto: string; tipo: TipoDeuda; montoOriginal: string; saldoActual: string
+  personaId: string; concepto: string; tipo: TipoDeuda; direccion: DireccionDeuda
+  cuentaOrigenId: string; tarjetaOrigenId: string
+  montoOriginal: string; saldoActual: string
   moneda: string; fechaInicio: string; fechaFin: string; tasaInteres: string; montoCuota: string
   tipoPlazo: TipoPlazo; numeroCuotas: string; diaCobro: string
   estado: EstadoDeuda; notas: string; categoriaId: string; subcategoriaId: string
 }
 const EMPTY: DeudaForm = {
-  personaId: '', concepto: '', tipo: 'PERSONAL', montoOriginal: '', saldoActual: '',
+  personaId: '', concepto: '', tipo: 'PERSONAL', direccion: 'DEBO_YO',
+  cuentaOrigenId: '', tarjetaOrigenId: '',
+  montoOriginal: '', saldoActual: '',
   moneda: 'DOP', fechaInicio: toLocalDateStr(), fechaFin: '',
-  tasaInteres: '', montoCuota: '', tipoPlazo: 'FIJO', numeroCuotas: '', diaCobro: '', estado: 'ACTIVA', notas: '',
-  categoriaId: '', subcategoriaId: '',
+  tasaInteres: '', montoCuota: '', tipoPlazo: 'FIJO', numeroCuotas: '', diaCobro: '',
+  estado: 'ACTIVA', notas: '', categoriaId: '', subcategoriaId: '',
 }
 
-/** Amortización francesa: cuota fija mensual */
 function calcMontoCuota(monto: number, tasaAnual: number, n: number): number {
   if (!monto || !n) return 0
   if (tasaAnual === 0) return monto / n
@@ -106,10 +109,9 @@ function calcMontoCuota(monto: number, tasaAnual: number, n: number): number {
   return (monto * r) / (1 - Math.pow(1 + r, -n))
 }
 
-/** Newton-Raphson: given monto, cuota mensual y n cuotas → tasa anual % (null si tasa negativa) */
 function calcTasaAnualDesdeMontos(monto: number, cuota: number, n: number): number | null {
   const minCuota = monto / n
-  if (cuota < minCuota - 0.001) return null  // implies negative rate
+  if (cuota < minCuota - 0.001) return null
   if (Math.abs(cuota - minCuota) < 0.001) return 0
   let r = 0.01
   for (let i = 0; i < 300; i++) {
@@ -126,7 +128,6 @@ function calcTasaAnualDesdeMontos(monto: number, cuota: number, n: number): numb
   return r > 0 ? Math.round(r * 12 * 100 * 100) / 100 : null
 }
 
-/** Add N months to a date string (YYYY-MM-DD), clamp to last day of month */
 function addMonthsStr(dateStr: string, n: number): string {
   const d = new Date(dateStr + 'T00:00:00')
   d.setMonth(d.getMonth() + n)
@@ -136,9 +137,11 @@ function addMonthsStr(dateStr: string, n: number): string {
 }
 
 function DeudaFormPanel({
-  initial, isEdit = false, personas, categorias, onSubmit, onClose, loading, error,
+  initial, isEdit = false, personas, categorias, cuentas, tarjetas,
+  onSubmit, onClose, loading, error,
 }: {
   initial?: DeudaForm; isEdit?: boolean; personas: Persona[]; categorias: Categoria[]
+  cuentas: CuentaBancaria[]; tarjetas: TarjetaCredito[]
   onSubmit(d: DeudaForm, cuotasPagadasAnteriores: number): void
   onClose(): void; loading: boolean; error?: string | null
 }) {
@@ -155,27 +158,24 @@ function DeudaFormPanel({
     setForm(p => ({ ...p, categoriaId: e.target.value, subcategoriaId: '' }))
 
   const isFijo = form.tipoPlazo === 'FIJO'
+  const isMeDeben = form.direccion === 'ME_DEBEN'
 
-  // Auto-calculate fechaFin from fechaInicio + numeroCuotas
   useEffect(() => {
     if (!isFijo || !form.fechaInicio || !form.numeroCuotas) return
     const n = parseInt(form.numeroCuotas)
     if (n > 0) setForm(p => ({ ...p, fechaFin: addMonthsStr(p.fechaInicio, n) }))
   }, [form.fechaInicio, form.numeroCuotas, form.tipoPlazo])
 
-  // Derived values
   const montoOrig  = parseFloat(form.montoOriginal) || 0
   const saldoAct   = parseFloat(form.saldoActual) || montoOrig
   const nCuotas    = parseInt(form.numeroCuotas) || 0
   const cuotaSimple = nCuotas > 0 && montoOrig > 0 ? montoOrig / nCuotas : 0
 
-  // Smart detection of already-paid cuotas (uses simple division for estimation)
   const estimadaPagadas = (isFijo && cuotaSimple > 0 && saldoAct < montoOrig && !isEdit)
     ? Math.max(0, Math.round((montoOrig - saldoAct) / cuotaSimple))
     : 0
   const cuotasPagadasAnteriores = confirmarPagadas ? estimadaPagadas : 0
 
-  // ── Bidirectional handlers: tasa ↔ montoCuota ────────────────────────────
   const toStr = (n: number) => n > 0 ? n.toFixed(2) : ''
 
   const handleTasaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -223,6 +223,78 @@ function DeudaFormPanel({
     <form onSubmit={e => { e.preventDefault(); if (cuotaError) return; onSubmit(form, cuotasPagadasAnteriores) }} className="flex flex-col gap-4">
       {error && <div className="text-sm text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</div>}
 
+      {/* ── Dirección: quién le debe a quién ── */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm text-text-secondary">Dirección de la deuda *</span>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setForm(p => ({ ...p, direccion: 'DEBO_YO', cuentaOrigenId: '', tarjetaOrigenId: '' }))}
+            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition-all text-left
+              ${form.direccion === 'DEBO_YO'
+                ? 'border-danger bg-danger/10 text-danger'
+                : 'border-border text-text-muted hover:border-danger/40'}`}
+          >
+            <Icon icon="tabler:arrow-up-right" className="w-4 h-4 flex-shrink-0" />
+            <div>
+              <div className="text-xs font-semibold">Yo debo</div>
+              <div className="text-[10px] opacity-70">Tengo una deuda con esta persona</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setForm(p => ({ ...p, direccion: 'ME_DEBEN' }))}
+            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition-all text-left
+              ${form.direccion === 'ME_DEBEN'
+                ? 'border-success bg-success/10 text-success'
+                : 'border-border text-text-muted hover:border-success/40'}`}
+          >
+            <Icon icon="tabler:arrow-down-left" className="w-4 h-4 flex-shrink-0" />
+            <div>
+              <div className="text-xs font-semibold">Me deben</div>
+              <div className="text-[10px] opacity-70">Esta persona tiene una deuda conmigo</div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* ── Origen del préstamo (solo para ME_DEBEN) ── */}
+      {isMeDeben && (
+        <div className="flex flex-col gap-2 bg-success/5 border border-success/20 rounded-xl p-3">
+          <p className="text-xs font-semibold text-success uppercase tracking-wider flex items-center gap-1.5">
+            <Icon icon="tabler:building-bank" className="w-3.5 h-3.5" />
+            ¿De dónde prestaste el dinero?
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1 text-xs text-text-secondary">
+              Cuenta bancaria
+              <select
+                value={form.cuentaOrigenId}
+                onChange={e => setForm(p => ({ ...p, cuentaOrigenId: e.target.value, tarjetaOrigenId: '' }))}
+                className="input text-sm"
+              >
+                <option value="">— Sin cuenta —</option>
+                {cuentas.map(c => <option key={c.id} value={c.id}>{c.alias ?? c.banco}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-text-secondary">
+              Tarjeta de crédito
+              <select
+                value={form.tarjetaOrigenId}
+                onChange={e => setForm(p => ({ ...p, tarjetaOrigenId: e.target.value, cuentaOrigenId: '' }))}
+                className="input text-sm"
+              >
+                <option value="">— Sin tarjeta —</option>
+                {tarjetas.filter(t => t.activa).map(t => (
+                  <option key={t.id} value={t.id}>{t.alias ?? t.banco} ···{t.ultimosCuatro}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="text-[10px] text-text-muted">Opcional — para saber qué cuenta/tarjeta usaste al prestar</p>
+        </div>
+      )}
+
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Persona / Entidad *
         <select required value={form.personaId} onChange={set('personaId')} className="input">
@@ -234,7 +306,7 @@ function DeudaFormPanel({
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Concepto *
         <input required type="text" maxLength={150} value={form.concepto} onChange={set('concepto')}
-          className="input" placeholder="Ej. Préstamo personal — diciembre 2025" />
+          className="input" placeholder="Ej. Compra tarjeta Visa enero" />
       </label>
 
       <div className="grid grid-cols-2 gap-3">
@@ -265,7 +337,6 @@ function DeudaFormPanel({
         </label>
       </div>
 
-      {/* ── Tipo de plazo + cuotas PRIMERO ────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Tipo de plazo
@@ -283,14 +354,12 @@ function DeudaFormPanel({
         )}
       </div>
 
-      {/* Tasa siempre visible (para FIJO calcula cuota, para FLEXIBLE es informativa) */}
       <label className="flex flex-col gap-1 text-sm text-text-secondary">
         Tasa de interés % anual
         <input type="number" step="0.01" min="0" max="200" value={form.tasaInteres}
           onChange={handleTasaChange} className="input" placeholder="0.00 (sin interés)" />
       </label>
 
-      {/* Monto cuota — editable y bidireccional */}
       {isFijo && (
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           <span className="flex items-center gap-2">
@@ -299,16 +368,11 @@ function DeudaFormPanel({
               {form.tasaInteres ? '(calculado desde tasa)' : '(ingresa para derivar la tasa)'}
             </span>
           </span>
-          <input
-            type="number" step="0.01" min="0"
-            value={form.montoCuota}
+          <input type="number" step="0.01" min="0" value={form.montoCuota}
             onChange={handleMontoCuotaChange}
             className={`input ${cuotaError ? 'border-danger' : ''}`}
-            placeholder="Se calcula automáticamente"
-          />
-          {cuotaError && (
-            <span className="text-xs text-danger mt-0.5">{cuotaError}</span>
-          )}
+            placeholder="Se calcula automáticamente" />
+          {cuotaError && <span className="text-xs text-danger mt-0.5">{cuotaError}</span>}
           {!cuotaError && form.montoCuota && nCuotas > 0 && (
             <span className="text-xs text-text-muted mt-0.5">
               Total: {form.moneda} {(parseFloat(form.montoCuota) * nCuotas).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -317,7 +381,6 @@ function DeudaFormPanel({
         </label>
       )}
 
-      {/* ── Fechas (fechaFin se auto-calcula si es FIJO) ──────────────────── */}
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Fecha inicio *
@@ -330,15 +393,10 @@ function DeudaFormPanel({
         </label>
       </div>
 
-      {/* ── Smart: cuotas pagadas anteriormente ──────────────────────────── */}
       {estimadaPagadas > 0 && (
         <label className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={confirmarPagadas}
-            onChange={e => setConfirmarPagadas(e.target.checked)}
-            className="mt-0.5 accent-amber-500"
-          />
+          <input type="checkbox" checked={confirmarPagadas} onChange={e => setConfirmarPagadas(e.target.checked)}
+            className="mt-0.5 accent-amber-500" />
           <div>
             <p className="text-sm font-medium text-amber-500">
               Se detectaron {estimadaPagadas} cuota{estimadaPagadas !== 1 ? 's' : ''} pagada{estimadaPagadas !== 1 ? 's' : ''} anteriormente
@@ -360,15 +418,12 @@ function DeudaFormPanel({
         </select>
       </label>
 
-      {/* ── Categoría / Subcategoría (opcional) ─────────────────────────── */}
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm text-text-secondary">
           Categoría <span className="text-xs text-text-muted font-normal">(opcional)</span>
           <select value={form.categoriaId} onChange={handleCatChange} className="input">
             <option value="">— Sin categoría —</option>
-            {categorias.map(c => (
-              <option key={c.id} value={c.id}>{c.icono ? `${c.icono} ` : ''}{c.nombre}</option>
-            ))}
+            {categorias.map(c => <option key={c.id} value={c.id}>{c.icono ? `${c.icono} ` : ''}{c.nombre}</option>)}
           </select>
         </label>
         {form.categoriaId && subcats.length > 0 && (
@@ -390,7 +445,9 @@ function DeudaFormPanel({
 
       <div className="flex gap-2 justify-end mt-2">
         <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
-        <button type="submit" disabled={loading || !!cuotaError} className="btn-primary">{loading ? 'Guardando…' : 'Guardar'}</button>
+        <button type="submit" disabled={loading || !!cuotaError} className="btn-primary">
+          {loading ? 'Guardando…' : 'Guardar'}
+        </button>
       </div>
     </form>
   )
@@ -434,22 +491,118 @@ function PagoFormPanel({ deuda, onSubmit, onClose, loading, error }: {
   )
 }
 
+// ── Compensar confirm modal ────────────────────────────────────────────────
+function CompensarModal({
+  personaName, clienteId, personaId, onClose, onSuccess,
+}: {
+  personaName: string; clienteId: string; personaId: string
+  onClose(): void; onSuccess(): void
+}) {
+  const fmt = useFmt()
+  const { data: deudas = [] } = useQuery<Deuda[]>({
+    queryKey: ['deudas', clienteId],
+    queryFn: async () => (await api.get(`/clientes/${clienteId}/deudas`)).data.data,
+    staleTime: 0,
+  })
+  const activas = deudas.filter(d => d.personaId === personaId && d.estado === 'ACTIVA')
+  const deboYo  = activas.filter(d => (d.direccion ?? 'DEBO_YO') === 'DEBO_YO')
+  const meDeben = activas.filter(d => d.direccion === 'ME_DEBEN')
+  const totalDeboYo  = deboYo.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
+  const totalMeDeben = meDeben.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
+  const net = Math.round((totalMeDeben - totalDeboYo) * 100) / 100
+
+  const compensar = useMutation({
+    mutationFn: () => api.post(`/clientes/${clienteId}/personas/${personaId}/compensar`, {}),
+    onSuccess,
+  })
+
+  return (
+    <Modal title={`Compensar deudas — ${personaName}`} onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-text-secondary">
+          Las deudas mutuas se cancelarán entre sí. Así quedan los saldos antes de compensar:
+        </p>
+
+        {/* Side-by-side summary */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-danger/5 border border-danger/20 p-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Icon icon="tabler:arrow-up-right" className="w-3.5 h-3.5 text-danger" />
+              <span className="text-xs font-semibold text-danger uppercase tracking-wider">Yo debo</span>
+            </div>
+            <p className="text-lg font-bold text-danger tabular-nums">{fmt(totalDeboYo)}</p>
+            <p className="text-[10px] text-text-muted mt-1">{deboYo.length} deuda{deboYo.length !== 1 ? 's' : ''}</p>
+          </div>
+          <div className="rounded-xl bg-success/5 border border-success/20 p-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Icon icon="tabler:arrow-down-left" className="w-3.5 h-3.5 text-success" />
+              <span className="text-xs font-semibold text-success uppercase tracking-wider">Me deben</span>
+            </div>
+            <p className="text-lg font-bold text-success tabular-nums">{fmt(totalMeDeben)}</p>
+            <p className="text-[10px] text-text-muted mt-1">{meDeben.length} deuda{meDeben.length !== 1 ? 's' : ''}</p>
+          </div>
+        </div>
+
+        {/* Net result */}
+        <div className={`rounded-xl border p-3 flex items-center gap-3
+          ${Math.abs(net) < 0.01
+            ? 'bg-primary/5 border-primary/20'
+            : net > 0 ? 'bg-success/5 border-success/20' : 'bg-danger/5 border-danger/20'}`}>
+          <Icon icon="tabler:scale" className={`w-5 h-5 flex-shrink-0
+            ${Math.abs(net) < 0.01 ? 'text-primary' : net > 0 ? 'text-success' : 'text-danger'}`} />
+          <div>
+            <p className="text-sm font-semibold text-text-primary">
+              {Math.abs(net) < 0.01
+                ? 'Quedan completamente saldados'
+                : net > 0
+                  ? `${personaName.split(' ')[0]} te quedará debiendo ${fmt(net)}`
+                  : `Aún le deberás ${fmt(Math.abs(net))} a ${personaName.split(' ')[0]}`}
+            </p>
+            <p className="text-xs text-text-muted mt-0.5">
+              {Math.abs(net) < 0.01
+                ? 'Todas las deudas se cancelan mutuamente.'
+                : 'Se creará automáticamente una nueva deuda por el saldo neto restante.'}
+            </p>
+          </div>
+        </div>
+
+        {compensar.isError && (
+          <div className="text-sm text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">
+            {(compensar.error as any)?.response?.data?.error ?? 'Error al compensar'}
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end mt-1">
+          <button type="button" onClick={onClose} className="btn-ghost">Cancelar</button>
+          <button
+            type="button"
+            onClick={() => compensar.mutate()}
+            disabled={compensar.isPending}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Icon icon="tabler:scale" className="w-4 h-4" />
+            {compensar.isPending ? 'Compensando…' : 'Confirmar compensación'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Deuda Row (expandable) ─────────────────────────────────────────────────
 function DeudaRow({ d, onEdit, onDelete, onPago }: {
-  d: Deuda
-  onEdit(d: Deuda): void
-  onDelete(d: Deuda): void
-  onPago(d: Deuda): void
+  d: Deuda; onEdit(d: Deuda): void; onDelete(d: Deuda): void; onPago(d: Deuda): void
 }) {
   const fmt = useFmt()
   const [open, setOpen] = useState(false)
   const color     = ESTADO_COLORS[d.estado]
   const tipoLabel = TIPOS_DEUDA.find(t => t.value === d.tipo)?.label ?? d.tipo
+  const isMeDeben = d.direccion === 'ME_DEBEN'
 
   const { data: pagos, isLoading: pagosLoading } = useQuery<PagoDeuda[]>({
     queryKey: ['deuda-pagos', d.id],
     queryFn: async () => (await api.get(`/deudas/${d.id}/pagos`)).data.data,
-    enabled: open,           // only fetch when expanded
+    enabled: open,
     staleTime: 30_000,
   })
 
@@ -461,26 +614,23 @@ function DeudaRow({ d, onEdit, onDelete, onPago }: {
 
   return (
     <div className="border-b border-border/50 last:border-0">
-      {/* Summary row */}
       <div className="px-4 py-3 flex items-start gap-3">
-        {/* Expand chevron */}
-        <button
-          type="button"
-          onClick={() => setOpen(o => !o)}
+        <button type="button" onClick={() => setOpen(o => !o)}
           className="mt-1 flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
-          title={open ? 'Colapsar' : 'Ver detalles'}
-        >
-          {open
-            ? <ChevronDownIcon className="w-3.5 h-3.5" />
-            : <ChevronRightIcon className="w-3.5 h-3.5" />}
+          title={open ? 'Colapsar' : 'Ver detalles'}>
+          {open ? <ChevronDownIcon className="w-3.5 h-3.5" /> : <ChevronRightIcon className="w-3.5 h-3.5" />}
         </button>
 
-        {/* Estado dot */}
         <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0" style={{ backgroundColor: color }} />
 
         <div className="flex-1 min-w-0">
-          {/* Concepto + badges */}
           <div className="flex items-center gap-2 flex-wrap mb-2">
+            {/* Direction badge */}
+            <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold
+              ${isMeDeben ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
+              <Icon icon={isMeDeben ? 'tabler:arrow-down-left' : 'tabler:arrow-up-right'} className="w-2.5 h-2.5" />
+              {isMeDeben ? 'Me deben' : 'Yo debo'}
+            </span>
             <span className="text-sm font-medium text-text-primary cursor-pointer hover:text-primary transition-colors"
               onClick={() => setOpen(o => !o)}>
               {d.concepto ?? '(sin concepto)'}
@@ -497,12 +647,14 @@ function DeudaRow({ d, onEdit, onDelete, onPago }: {
           <DeudaProgress saldo={d.saldoActual} original={d.montoOriginal} />
         </div>
 
-        {/* Actions */}
         <div className="flex items-center gap-1 flex-shrink-0 ml-2 mt-0.5">
           {d.estado === 'ACTIVA' && (
             <button onClick={() => onPago(d)}
-              className="px-2 py-1 rounded text-xs font-medium bg-success/10 text-success hover:bg-success/20 transition-colors">
-              💳 Pago
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors
+                ${isMeDeben
+                  ? 'bg-success/10 text-success hover:bg-success/20'
+                  : 'bg-success/10 text-success hover:bg-success/20'}`}>
+              💳 {isMeDeben ? 'Cobrar' : 'Pago'}
             </button>
           )}
           <button onClick={() => onEdit(d)}
@@ -512,10 +664,8 @@ function DeudaRow({ d, onEdit, onDelete, onPago }: {
         </div>
       </div>
 
-      {/* Expanded detail panel */}
       {open && (
         <div className="mx-4 mb-4 rounded-xl bg-background/60 border border-border/60 overflow-hidden">
-          {/* Key data grid */}
           <div className="grid grid-cols-3 divide-x divide-border/60 border-b border-border/60">
             <div className="px-3 py-2.5">
               <p className="text-xs text-text-muted mb-0.5">Fecha inicio</p>
@@ -532,20 +682,6 @@ function DeudaRow({ d, onEdit, onDelete, onPago }: {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-3 divide-x divide-border/60 border-b border-border/60">
-            <div className="px-3 py-2.5">
-              <p className="text-xs text-text-muted mb-0.5">Tipo plazo</p>
-              <p className="text-sm font-medium text-text-primary">{d.tipoPlazo === 'FIJO' ? 'Fijo' : 'Flexible'}</p>
-            </div>
-            <div className="px-3 py-2.5">
-              <p className="text-xs text-text-muted mb-0.5">Cuotas</p>
-              <p className="text-sm font-medium text-text-primary">{d.numeroCuotas ?? '—'}</p>
-            </div>
-            <div className="px-3 py-2.5">
-              <p className="text-xs text-text-muted mb-0.5">Moneda</p>
-              <p className="text-sm font-medium text-text-primary">{d.moneda}</p>
-            </div>
-          </div>
           {d.notas && (
             <div className="px-3 py-2.5 border-b border-border/60">
               <p className="text-xs text-text-muted mb-0.5">Notas</p>
@@ -553,12 +689,9 @@ function DeudaRow({ d, onEdit, onDelete, onPago }: {
             </div>
           )}
 
-          {/* Payment history */}
           <div className="px-3 py-2.5">
             <p className="text-xs text-text-muted uppercase tracking-wider mb-2">Historial de pagos</p>
-            {pagosLoading && (
-              <p className="text-xs text-text-muted">Cargando…</p>
-            )}
+            {pagosLoading && <p className="text-xs text-text-muted">Cargando…</p>}
             {!pagosLoading && (!pagos || pagos.length === 0) && (
               <p className="text-xs text-text-muted italic">Sin pagos registrados</p>
             )}
@@ -574,7 +707,6 @@ function DeudaRow({ d, onEdit, onDelete, onPago }: {
                     <span className="font-medium text-success tabular-nums">+{fmt(p.monto)}</span>
                   </div>
                 ))}
-                {/* Total paid summary */}
                 <div className="flex items-center justify-between text-xs text-text-muted pt-1.5 border-t border-border/60 mt-0.5">
                   <span>{pagos.length} {pagos.length === 1 ? 'pago' : 'pagos'}</span>
                   <span className="font-semibold text-success">
@@ -592,98 +724,176 @@ function DeudaRow({ d, onEdit, onDelete, onPago }: {
 
 // ── Persona Group Card ──────────────────────────────────────────────────────
 function PersonaGroupCard({
-  personaName, deudas, filtroEstado,
-  onNew, onEdit, onDelete, onPago,
+  personaId, personaName, deudas, filtroEstado,
+  clienteId, onNew, onEdit, onDelete, onPago,
 }: {
-  personaName: string
-  deudas: Deuda[]
-  filtroEstado: EstadoDeuda | ''
-  onNew(): void
-  onEdit(d: Deuda): void
-  onDelete(d: Deuda): void
-  onPago(d: Deuda): void
+  personaId: string | null; personaName: string
+  deudas: Deuda[]; filtroEstado: EstadoDeuda | ''
+  clienteId: string
+  onNew(): void; onEdit(d: Deuda): void; onDelete(d: Deuda): void; onPago(d: Deuda): void
 }) {
   const fmt = useFmt()
   const [open, setOpen] = useState(true)
+  const [showCompensar, setShowCompensar] = useState(false)
+  const qc = useQueryClient()
 
   const filtered = deudas.filter(d => !filtroEstado || d.estado === filtroEstado)
   if (filtered.length === 0) return null
 
-  const totalSaldo = filtered.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
+  // Separate directions
+  const deboYoActivas  = deudas.filter(d => (d.direccion ?? 'DEBO_YO') === 'DEBO_YO' && d.estado === 'ACTIVA')
+  const meDebenActivas = deudas.filter(d => d.direccion === 'ME_DEBEN' && d.estado === 'ACTIVA')
+  const canCompensar   = personaId !== null && deboYoActivas.length > 0 && meDebenActivas.length > 0
+
+  const totalDeboYoActivo  = deboYoActivas.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
+  const totalMeDebenActivo = meDebenActivas.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
+  const netActivo = Math.round((totalMeDebenActivo - totalDeboYoActivo) * 100) / 100
+
+  // For header display: net balance
+  const totalSaldo    = filtered.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
   const totalOriginal = filtered.reduce((s, d) => s + parseFloat(String(d.montoOriginal)), 0)
-  const activas = filtered.filter(d => d.estado === 'ACTIVA').length
-  const hasActive = activas > 0
+  const hasActive = deudas.some(d => d.estado === 'ACTIVA')
+
+  // Separate filtered debts by direction for display
+  const filteredDeboYo  = filtered.filter(d => (d.direccion ?? 'DEBO_YO') === 'DEBO_YO')
+  const filteredMeDeben = filtered.filter(d => d.direccion === 'ME_DEBEN')
 
   return (
-    <div className="bg-surface border border-border rounded-xl overflow-hidden">
-      {/* Header row — persona name + totals */}
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
-      >
-        {open
-          ? <ChevronDownIcon className="w-4 h-4 text-text-muted flex-shrink-0" />
-          : <ChevronRightIcon className="w-4 h-4 text-text-muted flex-shrink-0" />
-        }
+    <>
+      <div className="bg-surface border border-border rounded-xl overflow-hidden">
+        {/* Header row */}
+        <button type="button" onClick={() => setOpen(o => !o)}
+          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left">
+          {open
+            ? <ChevronDownIcon className="w-4 h-4 text-text-muted flex-shrink-0" />
+            : <ChevronRightIcon className="w-4 h-4 text-text-muted flex-shrink-0" />}
 
-        {/* Avatar */}
-        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-          <span className="text-primary font-bold text-sm">{personaName.charAt(0).toUpperCase()}</span>
-        </div>
+          <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+            <span className="text-primary font-bold text-sm">{personaName.charAt(0).toUpperCase()}</span>
+          </div>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-text-primary truncate">{personaName}</span>
-            <span className="text-xs text-text-muted">{filtered.length} {filtered.length === 1 ? 'deuda' : 'deudas'}</span>
-            {activas > 0 && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full bg-success/10 text-success font-medium">
-                {activas} activa{activas > 1 ? 's' : ''}
-              </span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-text-primary truncate">{personaName}</span>
+              <span className="text-xs text-text-muted">{filtered.length} {filtered.length === 1 ? 'deuda' : 'deudas'}</span>
+              {/* Net balance pill */}
+              {hasActive && (
+                <>
+                  {totalDeboYoActivo > 0 && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-danger/10 text-danger font-medium flex items-center gap-0.5">
+                      <Icon icon="tabler:arrow-up-right" className="w-2.5 h-2.5" />
+                      {fmt(totalDeboYoActivo)}
+                    </span>
+                  )}
+                  {totalMeDebenActivo > 0 && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-success/10 text-success font-medium flex items-center gap-0.5">
+                      <Icon icon="tabler:arrow-down-left" className="w-2.5 h-2.5" />
+                      {fmt(totalMeDebenActivo)}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Net position + compensar button */}
+          <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+            {canCompensar && (
+              <button
+                type="button"
+                onClick={() => setShowCompensar(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 border border-primary/20
+                  text-primary text-xs font-semibold hover:bg-primary/20 transition-colors"
+                title="Compensar deudas mutuas"
+              >
+                <Icon icon="tabler:scale" className="w-3.5 h-3.5" />
+                Compensar
+              </button>
             )}
+            <div className="text-right">
+              {hasActive && Math.abs(netActivo) >= 0.01 ? (
+                <>
+                  <p className={`font-bold tabular-nums text-sm ${netActivo > 0 ? 'text-success' : 'text-danger'}`}>
+                    {netActivo > 0 ? `+${fmt(netActivo)}` : fmt(netActivo)}
+                  </p>
+                  <p className="text-[10px] text-text-muted">
+                    {netActivo > 0 ? 'neto a tu favor' : 'neto en tu contra'}
+                  </p>
+                </>
+              ) : hasActive && Math.abs(netActivo) < 0.01 && totalDeboYoActivo > 0 && totalMeDebenActivo > 0 ? (
+                <p className="text-xs text-primary font-semibold">Equilibrado</p>
+              ) : (
+                <p className={`font-bold tabular-nums ${hasActive ? 'text-danger' : 'text-text-muted'}`}>
+                  {fmt(totalSaldo)}
+                </p>
+              )}
+            </div>
           </div>
-        </div>
+        </button>
 
-        <div className="text-right flex-shrink-0">
-          <p className={`font-bold tabular-nums ${hasActive ? 'text-danger' : 'text-text-muted'}`}>
-            {fmt(totalSaldo)}
-          </p>
-          {totalOriginal !== totalSaldo && (
-            <p className="text-xs text-text-muted">de {fmt(totalOriginal)}</p>
-          )}
-        </div>
-      </button>
-
-      {/* Collapsed: mini progress bar */}
-      {!open && hasActive && (
-        <div className="px-4 pb-3">
-          <DeudaProgress saldo={String(totalSaldo)} original={String(totalOriginal)} compact />
-        </div>
-      )}
-
-      {/* Expanded: list of debts */}
-      {open && (
-        <div className="border-t border-border">
-          {filtered.map(d => (
-            <DeudaRow
-              key={d.id}
-              d={d}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onPago={onPago}
-            />
-          ))}
-
-          {/* Add another debt for this person shortcut */}
-          <div className="px-4 py-2">
-            <button onClick={onNew}
-              className="text-xs text-text-muted hover:text-primary transition-colors flex items-center gap-1">
-              <PlusIcon className="w-3 h-3" /> Agregar otra deuda a {personaName.split(' ')[0]}
-            </button>
+        {!open && hasActive && (
+          <div className="px-4 pb-3">
+            <DeudaProgress saldo={String(totalSaldo)} original={String(totalOriginal)} compact />
           </div>
-        </div>
+        )}
+
+        {open && (
+          <div className="border-t border-border">
+            {/* DEBO YO section */}
+            {filteredDeboYo.length > 0 && (
+              <>
+                {filteredMeDeben.length > 0 && (
+                  <div className="px-4 pt-3 pb-1 flex items-center gap-2">
+                    <Icon icon="tabler:arrow-up-right" className="w-3 h-3 text-danger" />
+                    <span className="text-[10px] font-semibold text-danger uppercase tracking-wider">
+                      Yo debo — {fmt(filteredDeboYo.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0))}
+                    </span>
+                  </div>
+                )}
+                {filteredDeboYo.map(d => (
+                  <DeudaRow key={d.id} d={d} onEdit={onEdit} onDelete={onDelete} onPago={onPago} />
+                ))}
+              </>
+            )}
+
+            {/* ME DEBEN section */}
+            {filteredMeDeben.length > 0 && (
+              <>
+                <div className={`px-4 pt-3 pb-1 flex items-center gap-2 ${filteredDeboYo.length > 0 ? 'border-t border-border/40' : ''}`}>
+                  <Icon icon="tabler:arrow-down-left" className="w-3 h-3 text-success" />
+                  <span className="text-[10px] font-semibold text-success uppercase tracking-wider">
+                    Me deben — {fmt(filteredMeDeben.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0))}
+                  </span>
+                </div>
+                {filteredMeDeben.map(d => (
+                  <DeudaRow key={d.id} d={d} onEdit={onEdit} onDelete={onDelete} onPago={onPago} />
+                ))}
+              </>
+            )}
+
+            <div className="px-4 py-2">
+              <button onClick={onNew}
+                className="text-xs text-text-muted hover:text-primary transition-colors flex items-center gap-1">
+                <PlusIcon className="w-3 h-3" /> Agregar otra deuda a {personaName.split(' ')[0]}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {showCompensar && personaId && (
+        <CompensarModal
+          personaName={personaName}
+          clienteId={clienteId}
+          personaId={personaId}
+          onClose={() => setShowCompensar(false)}
+          onSuccess={() => {
+            setShowCompensar(false)
+            qc.invalidateQueries({ queryKey: ['deudas', clienteId] })
+          }}
+        />
       )}
-    </div>
+    </>
   )
 }
 
@@ -699,6 +909,9 @@ const toPayload = (d: DeudaForm, cuotasPagadasAnteriores = 0) => ({
   personaId: d.personaId,
   concepto: d.concepto || null,
   tipo: d.tipo,
+  direccion: d.direccion,
+  cuentaOrigenId: d.cuentaOrigenId || null,
+  tarjetaOrigenId: d.tarjetaOrigenId || null,
   montoOriginal: parseFloat(d.montoOriginal),
   saldoActual: d.saldoActual ? parseFloat(d.saldoActual) : undefined,
   moneda: d.moneda,
@@ -719,6 +932,7 @@ export function DeudasPage() {
   const fmt = useFmt()
   const qc = useQueryClient()
   const cid = useAuthStore(s => s.clienteActivo?.id) ?? ''
+
   const { data: deudas = [], isLoading } = useQuery<Deuda[]>({
     queryKey: ['deudas', cid],
     queryFn: async () => (await api.get(`/clientes/${cid}/deudas`)).data.data,
@@ -732,6 +946,16 @@ export function DeudasPage() {
   const { data: categorias = [] } = useQuery<Categoria[]>({
     queryKey: ['categorias'],
     queryFn: async () => (await api.get('/categorias')).data.data,
+  })
+  const { data: cuentas = [] } = useQuery<CuentaBancaria[]>({
+    queryKey: ['cuentas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/cuentas`)).data.data,
+    enabled: !!cid,
+  })
+  const { data: tarjetas = [] } = useQuery<TarjetaCredito[]>({
+    queryKey: ['tarjetas', cid],
+    queryFn: async () => (await api.get(`/clientes/${cid}/tarjetas`)).data.data,
+    enabled: !!cid,
   })
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -775,25 +999,29 @@ export function DeudasPage() {
   })
 
   // ── Summary ────────────────────────────────────────────────────────────
-  const totalPorPagar = deudas.filter(d => d.estado === 'ACTIVA').reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
-  const totalOriginal = deudas.filter(d => d.estado === 'ACTIVA').reduce((s, d) => s + parseFloat(String(d.montoOriginal)), 0)
+  const activasDeudas = deudas.filter(d => d.estado === 'ACTIVA')
+  const totalDeboYo  = activasDeudas
+    .filter(d => (d.direccion ?? 'DEBO_YO') === 'DEBO_YO')
+    .reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
+  const totalMeDeben = activasDeudas
+    .filter(d => d.direccion === 'ME_DEBEN')
+    .reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
+  const netoGlobal = Math.round((totalMeDeben - totalDeboYo) * 100) / 100
   const saldadas = deudas.filter(d => d.estado === 'SALDADA').length
 
   // ── Group by persona ───────────────────────────────────────────────────
-  // Build a map: personaId → { name, deudas[] }
   const groups = useMemo(() => {
-    const map = new Map<string, { name: string; deudas: Deuda[] }>()
+    const map = new Map<string, { personaId: string | null; name: string; deudas: Deuda[] }>()
     for (const d of deudas) {
       const key = d.personaId ?? `__txt__${d.acreedorTexto ?? 'sin_persona'}`
       if (!map.has(key)) {
         const name = d.persona
           ? personaDisplayName(d.persona)
           : (d.acreedorTexto ?? 'Sin acreedor')
-        map.set(key, { name, deudas: [] })
+        map.set(key, { personaId: d.personaId, name, deudas: [] })
       }
       map.get(key)!.deudas.push(d)
     }
-    // Sort groups: most total saldo first
     return Array.from(map.entries()).sort(([, a], [, b]) => {
       const sA = a.deudas.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
       const sB = b.deudas.reduce((s, d) => s + parseFloat(String(d.saldoActual)), 0)
@@ -801,7 +1029,6 @@ export function DeudasPage() {
     })
   }, [deudas])
 
-  // Modal initial form when pre-filling persona
   const newFormInitial = (prePersonaId?: string): DeudaForm =>
     prePersonaId ? { ...EMPTY, personaId: prePersonaId } : EMPTY
 
@@ -809,7 +1036,6 @@ export function DeudasPage() {
     <div className="flex flex-col gap-6 max-w-3xl mx-auto">
       {toast && <Toast {...toast} />}
 
-      {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Deudas</h1>
@@ -820,25 +1046,36 @@ export function DeudasPage() {
         </button>
       </div>
 
-      {/* Summary cards */}
+      {/* Summary cards — now bidirectional */}
       {deudas.length > 0 && (
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-surface border border-border rounded-xl p-4">
-            <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Por pagar (activas)</p>
-            <p className="text-xl font-bold text-danger">{fmt(totalPorPagar)}</p>
+            <div className="flex items-center gap-1.5 mb-1">
+              <Icon icon="tabler:arrow-up-right" className="w-3.5 h-3.5 text-danger" />
+              <p className="text-xs text-text-muted uppercase tracking-wider">Yo debo</p>
+            </div>
+            <p className="text-xl font-bold text-danger">{fmt(totalDeboYo)}</p>
           </div>
           <div className="bg-surface border border-border rounded-xl p-4">
-            <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Monto original</p>
-            <p className="text-xl font-bold text-text-primary">{fmt(totalOriginal)}</p>
+            <div className="flex items-center gap-1.5 mb-1">
+              <Icon icon="tabler:arrow-down-left" className="w-3.5 h-3.5 text-success" />
+              <p className="text-xs text-text-muted uppercase tracking-wider">Me deben</p>
+            </div>
+            <p className="text-xl font-bold text-success">{fmt(totalMeDeben)}</p>
           </div>
           <div className="bg-surface border border-border rounded-xl p-4">
-            <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Saldadas</p>
-            <p className="text-xl font-bold text-success">{saldadas}</p>
+            <div className="flex items-center gap-1.5 mb-1">
+              <Icon icon="tabler:scale" className={`w-3.5 h-3.5 ${netoGlobal >= 0 ? 'text-success' : 'text-danger'}`} />
+              <p className="text-xs text-text-muted uppercase tracking-wider">Balance neto</p>
+            </div>
+            <p className={`text-xl font-bold ${netoGlobal >= 0 ? 'text-success' : 'text-danger'}`}>
+              {netoGlobal > 0 ? '+' : ''}{fmt(netoGlobal)}
+            </p>
+            <p className="text-[10px] text-text-muted mt-0.5">{saldadas} saldadas</p>
           </div>
         </div>
       )}
 
-      {/* Filter by estado */}
       <div className="flex gap-2 flex-wrap">
         {(['', 'ACTIVA', 'SALDADA', 'EN_MORA', 'RENEGOCIADA', 'CANCELADA'] as const).map(e => (
           <button key={e} type="button" onClick={() => setFiltroEstado(e as EstadoDeuda | '')}
@@ -851,14 +1088,15 @@ export function DeudasPage() {
 
       {isLoading && <div className="flex items-center justify-center h-32 text-text-muted text-sm">Cargando…</div>}
 
-      {/* Grouped cards */}
       <div className="flex flex-col gap-3">
-        {groups.map(([key, { name, deudas: groupDeudas }]) => (
+        {groups.map(([key, { personaId, name, deudas: groupDeudas }]) => (
           <PersonaGroupCard
             key={key}
+            personaId={personaId}
             personaName={name}
             deudas={groupDeudas}
             filtroEstado={filtroEstado}
+            clienteId={cid}
             onNew={() => setModal({ type: 'new', prePersonaId: groupDeudas[0]?.personaId ?? undefined })}
             onEdit={d => setModal({ type: 'edit', deuda: d })}
             onDelete={d => setModal({ type: 'delete', deuda: d })}
@@ -876,12 +1114,12 @@ export function DeudasPage() {
         </div>
       )}
 
-      {/* Modals */}
       {modal?.type === 'new' && (
         <Modal title="Nueva deuda" onClose={closeModal}>
           <DeudaFormPanel
             initial={newFormInitial(modal.prePersonaId)}
-            personas={personas} categorias={categorias} onClose={closeModal} loading={create.isPending} error={modal.error}
+            personas={personas} categorias={categorias} cuentas={cuentas} tarjetas={tarjetas}
+            onClose={closeModal} loading={create.isPending} error={modal.error}
             onSubmit={(d, cuotasPagadas) => create.mutate(toPayload(d, cuotasPagadas))} />
         </Modal>
       )}
@@ -897,6 +1135,9 @@ export function DeudasPage() {
                 personaId: modal.deuda.personaId ?? '',
                 concepto: modal.deuda.concepto ?? '',
                 tipo: modal.deuda.tipo,
+                direccion: modal.deuda.direccion ?? 'DEBO_YO',
+                cuentaOrigenId: modal.deuda.cuentaOrigenId ?? '',
+                tarjetaOrigenId: modal.deuda.tarjetaOrigenId ?? '',
                 montoOriginal: String(modal.deuda.montoOriginal),
                 saldoActual: String(modal.deuda.saldoActual),
                 moneda: modal.deuda.moneda,
@@ -913,7 +1154,8 @@ export function DeudasPage() {
                 subcategoriaId: modal.deuda.subcategoriaId ?? '',
               }
             })()}
-            personas={personas} categorias={categorias} onClose={closeModal} loading={update.isPending} error={modal.error}
+            personas={personas} categorias={categorias} cuentas={cuentas} tarjetas={tarjetas}
+            onClose={closeModal} loading={update.isPending} error={modal.error}
             onSubmit={(d) => update.mutate({ id: modal.deuda.id, d: toPayload(d) })} />
         </Modal>
       )}

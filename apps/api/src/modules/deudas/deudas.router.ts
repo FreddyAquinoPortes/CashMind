@@ -50,3 +50,11 @@ deudasRouter.get('/deudas/:id/amortizacion', requireAuth, async (req: AuthReques
     res.json({ data: await svc.amortizacion(req.params.id!) })
   } catch (err) { next(err) }
 })
+
+deudasRouter.post('/clientes/:clienteId/personas/:personaId/compensar', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    await requireCliente(req.params.clienteId!, req.user!.id)
+    const result = await svc.compensar(req.params.clienteId!, req.params.personaId!)
+    res.json({ data: result })
+  } catch (err) { next(err) }
+})

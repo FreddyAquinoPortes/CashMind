@@ -73,6 +73,11 @@ enum TipoDeuda {
   OTRA
 }
 
+enum DireccionDeuda {
+  DEBO_YO   // I owe this person
+  ME_DEBEN  // This person owes me
+}
+
 enum TipoPlazo {
   FIJO
   FLEXIBLE
@@ -413,22 +418,25 @@ model Deuda {
   acreedorTexto  String?
   personaId      String?
   persona        Persona?          @relation(fields: [personaId], references: [id])
-  tipo           TipoDeuda
-  montoOriginal  Decimal           @db.Decimal(15, 2)
-  saldoActual    Decimal           @db.Decimal(15, 2)
-  moneda         String            @default("DOP")
-  fechaInicio    DateTime
-  fechaFin       DateTime?
-  tasaInteres    Decimal?          @db.Decimal(5, 2)
-  tipoPlazo      TipoPlazo
-  numeroCuotas   Int?
-  diaCobro       Int?
-  estado         EstadoDeuda       @default(ACTIVA)
-  notas          String?
-  categoriaId    String?
-  subcategoriaId String?
-  pagos          PagoDeuda[]
-  createdAt      DateTime          @default(now())
+  tipo            TipoDeuda
+  direccion       DireccionDeuda    @default(DEBO_YO)
+  cuentaOrigenId  String?           // for ME_DEBEN: account lent from
+  tarjetaOrigenId String?           // for ME_DEBEN: card lent from
+  montoOriginal   Decimal           @db.Decimal(15, 2)
+  saldoActual     Decimal           @db.Decimal(15, 2)
+  moneda          String            @default("DOP")
+  fechaInicio     DateTime
+  fechaFin        DateTime?
+  tasaInteres     Decimal?          @db.Decimal(5, 2)
+  tipoPlazo       TipoPlazo
+  numeroCuotas    Int?
+  diaCobro        Int?
+  estado          EstadoDeuda       @default(ACTIVA)
+  notas           String?
+  categoriaId     String?
+  subcategoriaId  String?
+  pagos           PagoDeuda[]
+  createdAt       DateTime          @default(now())
 
   @@index([clienteId])
 }
