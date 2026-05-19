@@ -25,7 +25,7 @@ export class TransaccionesService {
     if (f.tipo) where['tipo'] = f.tipo
     if (f.q) where['concepto'] = { contains: f.q, mode: 'insensitive' }
 
-    const [total, items] = await Promise.all([
+    const [total, items, ingresosAgg, gastosAgg] = await Promise.all([
       prisma.transaccion.count({ where }),
       prisma.transaccion.findMany({
         where,
@@ -38,6 +38,8 @@ export class TransaccionesService {
         take: f.limit,
         skip: f.offset,
       }),
+      prisma.transaccion.aggregate({ where: { ...where, tipo: 'INGRESO' }, _sum: { monto: true } }),
+      prisma.transaccion.aggregate({ where: { ...where, tipo: 'GASTO' },   _sum: { monto: true } }),
     ])
 
     // Fetch categories for transactions that have categoriaId but no subcategoria
@@ -69,7 +71,14 @@ export class TransaccionesService {
       }
     })
 
-    return { total, items: mapped, limit: f.limit, offset: f.offset }
+    return {
+      total,
+      items: mapped,
+      limit: f.limit,
+      offset: f.offset,
+      ingresosTotales: Number(ingresosAgg._sum.monto ?? 0),
+      gastosTotales: Number(gastosAgg._sum.monto ?? 0),
+    }
   }
 
   async create(clienteId: string, body: unknown) {

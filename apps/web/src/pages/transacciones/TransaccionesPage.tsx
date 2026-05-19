@@ -792,16 +792,12 @@ export function TransaccionesPage() {
   const total = txData?.total ?? 0
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
-  // Summary cards computed from current page
+  // Summary totals from all filtered transactions (not just current page)
   const summary = useMemo(() => {
-    const ingresos = transactions
-      .filter(t => t.tipo === 'INGRESO')
-      .reduce((s, t) => s + parseFloat(String(t.monto)), 0)
-    const gastos = transactions
-      .filter(t => t.tipo === 'GASTO')
-      .reduce((s, t) => s + parseFloat(String(t.monto)), 0)
+    const ingresos = (txData as any)?.ingresosTotales ?? 0
+    const gastos   = (txData as any)?.gastosTotales   ?? 0
     return { ingresos, gastos, balance: ingresos - gastos }
-  }, [transactions])
+  }, [txData])
 
   const setFilter = (key: keyof Filters) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setPage(0)
@@ -921,11 +917,11 @@ export function TransaccionesPage() {
       {/* ── Summary cards ── */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-surface border border-border rounded-xl p-4">
-          <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Ingresos (página)</p>
+          <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Ingresos (filtro)</p>
           <p className="text-lg font-semibold amount-positive tabular">{formatCurrency(summary.ingresos)}</p>
         </div>
         <div className="bg-surface border border-border rounded-xl p-4">
-          <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Gastos (página)</p>
+          <p className="text-xs text-text-muted uppercase tracking-wider mb-1">Gastos (filtro)</p>
           <p className="text-lg font-semibold amount-negative tabular">{formatCurrency(summary.gastos)}</p>
         </div>
         <div className="bg-surface border border-border rounded-xl p-4">
