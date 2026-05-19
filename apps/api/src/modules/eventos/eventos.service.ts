@@ -34,6 +34,7 @@ const EventoBaseSchema = z.object({
   subcategoriaId:      z.string().optional().nullable(),
   notas:               z.string().max(500).optional().nullable(),
   fechaFin: z.string().optional().nullable().transform(s => s ? new Date(s + (s.length === 10 ? 'T00:00:00' : '')) : null),
+  rutaId:   z.string().optional().nullable(),
 })
 
 const EventoUpdateSchema = EventoBaseSchema.partial()

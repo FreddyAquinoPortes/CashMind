@@ -283,6 +283,13 @@ export class CombustibleService {
   }
 
   async removeRuta(id: string) {
+    // Delete all non-executed events linked to this route before removing it
+    await prisma.evento.deleteMany({
+      where: {
+        rutaId: id,
+        estado: { notIn: ['EJECUTADO'] },
+      },
+    })
     return prisma.ruta.delete({ where: { id } })
   }
 

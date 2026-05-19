@@ -500,6 +500,13 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
     if (unidadRend === 'mpg') return (kmMensual / 1.60934 / mpgEfectivo) * precioFuel
     return (kmMensual / mpgEfectivo) * precioFuel
   })() : null
+  // Costo por período de recurrencia (para el evento)
+  const kmPeriodoEvento = (Number(f.distanciaKm) || 0) * (Number(f.frecuenciaValor) || 0)
+  const costoPeriodoEvento = mpgEfectivo && kmPeriodoEvento > 0 && precioFuel > 0 ? (() => {
+    if (unidadRend === 'mpg') return (kmPeriodoEvento / 1.60934 / mpgEfectivo) * precioFuel
+    return (kmPeriodoEvento / mpgEfectivo) * precioFuel
+  })() : null
+  const labelPeriodo = f.frecuenciaUnidad === 'dia' ? 'día' : f.frecuenciaUnidad === 'mes' ? 'mes' : 'semana'
 
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(f) }} className="flex flex-col gap-4">
@@ -700,9 +707,9 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
         </label>
         {f.crearEvento && (
           <div className="mt-3 flex flex-col gap-3 pl-6 border-l-2 border-primary/30">
-            {costoMensual != null && (
+            {costoPeriodoEvento != null && (
               <p className="text-xs bg-success/10 border border-success/30 text-success rounded-lg px-3 py-2">
-                💰 Se creará con presupuesto estimado de <strong>DOP {fmtDec(costoMensual, 0)}/mes</strong>
+                💰 Se creará con presupuesto estimado de <strong>DOP {fmtDec(costoPeriodoEvento, 0)}/{labelPeriodo}</strong>
               </p>
             )}
             <div className="grid grid-cols-2 gap-3">
@@ -963,10 +970,10 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
 
   const create = useMutation({
     mutationFn: (payload: { d: object; f: RForm }) => api.post(`/clientes/${cid}/rutas`, payload.d),
-    onSuccess: (_, payload) => {
+    onSuccess: (res, payload) => {
       inv(); setModal(null); showToast('Ruta creada')
       if (payload.f.crearEvento && payload.f.eventoFechaInicio) {
-        createEvento.mutate(buildEventoPayload(payload.f, payload.f.nombre))
+        createEvento.mutate(buildEventoPayload(payload.f, payload.f.nombre, res.data?.data?.id))
       }
     },
     onError: (e: any) => showToast(e?.response?.data?.error ?? e.message, 'error'),
@@ -1017,12 +1024,13 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
     unidadRendimiento: f.unidadRendimiento,
   })
 
-  const buildEventoPayload = (f: RForm, rutaNombre: string) => {
+  const buildEventoPayload = (f: RForm, rutaNombre: string, rutaId?: string) => {
     const frecUnidad = f.frecuenciaUnidad
     const tipoRec = frecUnidad === 'dia' ? 'DIARIA' : frecUnidad === 'mes' ? 'MENSUAL' : 'SEMANAL'
     const distN = Number(f.distanciaKm) || 0
     const frecVal = Number(f.frecuenciaValor) || 0
-    const kmMes = frecUnidad === 'dia' ? distN * frecVal * 30.44 : frecUnidad === 'mes' ? distN * frecVal : distN * frecVal * 4.33
+    // km PER RECURRENCE PERIOD (not monthly): distance × times-per-period
+    const kmPeriodo = distN * frecVal
     const veh = vehiculos.find(v => v.id === f.vehiculoId)
     const rendEspec = veh?.rendimientos?.find(r => r.tipoCombustible === f.tipoCombustible)
     const mpg = rendEspec
@@ -1031,17 +1039,18 @@ function TabRutas({ cid, geoCtx }: { cid: string; geoCtx: GeoContext | null }) {
       : f.rendimientoManual ? Number(f.rendimientoManual) : null
     const unidR = rendEspec?.unidad ?? (veh ? 'mpg' : f.unidadRendimiento)
     const precio = preciosPorTipo[f.tipoCombustible] ?? 0
-    const costo = mpg && kmMes > 0 && precio > 0
-      ? (unidR === 'mpg' ? (kmMes / 1.60934 / mpg) * precio : (kmMes / mpg) * precio)
+    const costo = mpg && kmPeriodo > 0 && precio > 0
+      ? (unidR === 'mpg' ? (kmPeriodo / 1.60934 / mpg) * precio : (kmPeriodo / mpg) * precio)
       : 0
     return {
       nombre: `⛽ ${rutaNombre}`,
       tipo: 'PAGO_PROGRAMADO',
-      fecha: f.eventoFechaInicio || new Date().toISOString().split('T')[0],
+      fecha: f.eventoFechaInicio ? `${f.eventoFechaInicio}T12:00:00.000Z` : new Date().toISOString(),
       recurrente: true,
       tipoRecurrencia: tipoRec,
       presupuestoEstimado: Math.round(costo * 100) / 100,
-      fechaFin: (!f.eventoPerpetuo && f.eventoFechaFin) ? f.eventoFechaFin : null,
+      fechaFin: (!f.eventoPerpetuo && f.eventoFechaFin) ? `${f.eventoFechaFin}T12:00:00.000Z` : null,
+      rutaId: rutaId ?? null,
     }
   }
 

@@ -468,10 +468,12 @@ model Evento {
   subcategoriaId      String?
   subcategoria        Subcategoria? @relation(fields: [subcategoriaId], references: [id])
   notas               String?
-  fechaFin     DateTime?
-  extraCreditoId  String?
-  deudaId         String?
-  numeroCuota     Int?
+  fechaFin            DateTime?
+  extraCreditoId      String?
+  deudaId             String?
+  numeroCuota         Int?
+  rutaId              String?
+  ruta                Ruta?        @relation(fields: [rutaId], references: [id], onDelete: SetNull)
   transacciones       Transaccion[]
 
   @@index([clienteId, fecha])
@@ -544,6 +546,7 @@ model Ruta {
   tipoCombustible  String    @default("Regular")
   porcentajePropio Decimal   @default(100) @db.Decimal(5, 2)
   activa           Boolean   @default(true)
+  eventos          Evento[]
 }
 
 model PrecioCombustible {
