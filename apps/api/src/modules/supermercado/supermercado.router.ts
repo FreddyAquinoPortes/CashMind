@@ -47,3 +47,14 @@ supermercadoRouter.get('/supermercado/groups/:slug/shops', requireAuth, async (r
     res.json({ data })
   } catch (err) { next(err) }
 })
+
+/**
+ * GET /supermercado/groups/:slug/products-merged
+ * Products deduplicated across stores with per-store pricing
+ */
+supermercadoRouter.get('/supermercado/groups/:slug/products-merged', requireAuth, async (req, res, next) => {
+  try {
+    const data = await svc.productsMerged(req.params['slug']!)
+    res.json({ data })
+  } catch (err) { next(err) }
+})

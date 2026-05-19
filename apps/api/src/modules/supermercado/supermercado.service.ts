@@ -110,6 +110,29 @@ export interface ShopInfo {
   count: number
 }
 
+export interface StorePrice {
+  shopId: number
+  shopName: string
+  productId: number
+  price: number
+}
+
+export interface MergedProduct {
+  name: string
+  image: string
+  unit: string
+  brand: ProductBrand | null
+  lowestPrice: number
+  storeCount: number
+  stores: StorePrice[]
+}
+
+export interface MergedProductsResponse {
+  group: GroupInfo
+  products: MergedProduct[]
+  total: number
+}
+
 // ── Service ───────────────────────────────────────────────────────────────
 
 export class SupermercadoService {
@@ -139,5 +162,88 @@ export class SupermercadoService {
   /** Get available shops for a group */
   async shops(slug: string): Promise<ShopInfo[]> {
     return proxyFetch<ShopInfo[]>(`/groups/${slug}/shops`)
+  }
+
+  /**
+   * Fetch products for each available store in parallel, then merge entries
+   * with the same (name, unit) so the caller gets one entry per unique product
+   * with per-store pricing.
+   */
+  async productsMerged(slug: string): Promise<MergedProductsResponse> {
+    const cacheKey = `/groups/${slug}/merged`
+    const cached = getCached<MergedProductsResponse>(cacheKey)
+    if (cached) return cached
+
+    const [groupRes, shops] = await Promise.all([
+      this.products(slug, { limit: 1, sort: 'lowest_price' }),
+      this.shops(slug),
+    ])
+
+    // Fallback: no shop info → return simple list
+    if (shops.length === 0) {
+      const all = await this.products(slug, { limit: 100, sort: 'lowest_price' })
+      const result: MergedProductsResponse = {
+        group: all.group,
+        products: all.products.map(p => ({
+          name: p.name,
+          image: p.image,
+          unit: p.unit,
+          brand: p.brand,
+          lowestPrice: parseFloat(p.currentPrice),
+          storeCount: 1,
+          stores: [{ shopId: 0, shopName: p.brand?.name ?? '—', productId: p.id, price: parseFloat(p.currentPrice) }],
+        })),
+        total: all.total,
+      }
+      setCache(cacheKey, result)
+      return result
+    }
+
+    // Per-store fetch in parallel
+    const settled = await Promise.allSettled(
+      shops.map(shop =>
+        this.products(slug, { shopIds: [shop.id], limit: 100, sort: 'lowest_price' })
+          .then(res => ({ shop, products: res.products })),
+      ),
+    )
+
+    type Entry = { name: string; image: string; unit: string; brand: ProductBrand | null; stores: StorePrice[]; prices: number[] }
+    const map = new Map<string, Entry>()
+
+    for (const r of settled) {
+      if (r.status === 'rejected') continue
+      const { shop, products } = r.value
+      for (const p of products) {
+        const key = `${p.name.trim().toLowerCase()}|${p.unit.trim().toLowerCase()}`
+        const price = parseFloat(p.currentPrice)
+        if (!map.has(key)) {
+          map.set(key, { name: p.name, image: p.image, unit: p.unit, brand: p.brand, stores: [], prices: [] })
+        }
+        const e = map.get(key)!
+        if (!e.stores.find(s => s.shopId === shop.id)) {
+          e.stores.push({ shopId: shop.id, shopName: shop.name, productId: p.id, price })
+          e.prices.push(price)
+          // Prefer image from cheapest store
+          if (price <= Math.min(...e.prices)) e.image = p.image
+        }
+      }
+    }
+
+    const products: MergedProduct[] = Array.from(map.values())
+      .filter(e => e.stores.length > 0)
+      .map(e => ({
+        name: e.name,
+        image: e.image,
+        unit: e.unit,
+        brand: e.brand,
+        lowestPrice: Math.min(...e.prices),
+        storeCount: e.stores.length,
+        stores: e.stores.sort((a, b) => a.price - b.price),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+
+    const response: MergedProductsResponse = { group: groupRes.group, products, total: products.length }
+    setCache(cacheKey, response)
+    return response
   }
 }

@@ -62,6 +62,7 @@ interface ProductoExterno {
   image: string
   unit: string
   brand: string
+  storeName?: string   // supermarket where the product was purchased
   price: number
 }
 
@@ -569,18 +570,22 @@ function AtomicoView({
   const totalTodo  = useMemo(() => lineas.reduce((s, l) => s + l.montoPlaneado, 0), [lineas])
   const yaEjecutado = lineas.some(l => l.ejecuciones.length > 0)
 
-  // Unique brands/stores present in the list
+  // Resolve store name: prefer storeName, fall back to brand for legacy items
+  const getStore = (l: LineaPresupuesto) =>
+    l.productoExterno?.storeName || l.productoExterno?.brand || ''
+
+  // Unique stores present in the list (only items that have store info)
   const brands = useMemo(() => {
     const set = new Set<string>()
-    lineas.forEach(l => { if (l.productoExterno?.brand) set.add(l.productoExterno.brand) })
+    lineas.forEach(l => { const s = getStore(l); if (s) set.add(s) })
     return Array.from(set).sort()
   }, [lineas])
 
   // Per-store breakdown (only marked items)
   const storeBreakdown = useMemo(() => {
     const map = new Map<string, { total: number; count: number }>()
-    lineas.filter(l => l.incluido && l.productoExterno?.brand).forEach(l => {
-      const b = l.productoExterno!.brand
+    lineas.filter(l => l.incluido && getStore(l)).forEach(l => {
+      const b = getStore(l)
       const curr = map.get(b) ?? { total: 0, count: 0 }
       map.set(b, { total: curr.total + l.montoPlaneado, count: curr.count + 1 })
     })
@@ -597,7 +602,7 @@ function AtomicoView({
       r = r.filter(l => l.concepto.toLowerCase().includes(q))
     }
     if (filterBrand) {
-      r = r.filter(l => l.productoExterno?.brand === filterBrand)
+      r = r.filter(l => getStore(l) === filterBrand)
     }
     switch (filterEstado) {
       case 'marcados':    r = r.filter(l => l.incluido && l.ejecuciones.length === 0); break
@@ -793,10 +798,10 @@ function AtomicoView({
                   </span>
                   {l.productoExterno && (
                     <div className="text-xs text-text-muted truncate flex items-center gap-1">
-                      {l.productoExterno.brand && (
-                        <span className="font-medium">{l.productoExterno.brand}</span>
+                      {getStore(l) && (
+                        <span className="font-medium text-text-secondary">{getStore(l)}</span>
                       )}
-                      {l.productoExterno.brand && <span>·</span>}
+                      {getStore(l) && <span>·</span>}
                       <span>{l.productoExterno.unit}</span>
                     </div>
                   )}
