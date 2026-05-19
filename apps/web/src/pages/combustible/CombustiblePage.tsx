@@ -142,9 +142,10 @@ function MapResizer() {
 }
 
 // ── RouteMapPicker ─────────────────────────────────────────────────────────
-function RouteMapPicker({ geoCtx, onConfirm }: {
+function RouteMapPicker({ geoCtx, onConfirm, hideName }: {
   geoCtx: GeoContext | null
   onConfirm(km: number, nombre: string): void
+  hideName?: boolean
 }) {
   const [posA, setPosA] = useState<LatLng | null>(null)
   const [posB, setPosB] = useState<LatLng | null>(null)
@@ -284,16 +285,18 @@ function RouteMapPicker({ geoCtx, onConfirm }: {
       )}
 
       {/* Nombre + confirmar */}
-      <input
-        value={routeName}
-        onChange={e => setRouteName(e.target.value)}
-        placeholder="Nombre de la ruta (ej. Baní → Capital)"
-        className="input"
-      />
+      {!hideName && (
+        <input
+          value={routeName}
+          onChange={e => setRouteName(e.target.value)}
+          placeholder="Nombre de la ruta (ej. Baní → Capital)"
+          className="input"
+        />
+      )}
       <button
         type="button"
-        disabled={distanceKm === null || !routeName.trim()}
-        onClick={() => distanceKm !== null && routeName.trim() && onConfirm(distanceKm, routeName.trim())}
+        disabled={distanceKm === null || (!hideName && !routeName.trim())}
+        onClick={() => distanceKm !== null && onConfirm(distanceKm, routeName.trim())}
         className="btn-primary w-full disabled:opacity-40">
         Usar esta distancia → {distanceKm !== null ? `${distanceKm.toFixed(1)} km` : '—'}
       </button>
@@ -642,6 +645,7 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
               <div className="p-4">
                 <RouteMapPicker
                   geoCtx={geoCtx}
+                  hideName
                   onConfirm={(km, nombre) => {
                     setF(p => ({ ...p, distanciaKm: km.toFixed(1), nombre: p.nombre || nombre }))
                     setShowMap(false)
@@ -698,6 +702,7 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
               <div className="p-4">
                 <RouteMapPicker
                   geoCtx={geoCtx}
+                  hideName
                   onConfirm={(km, nombre) => {
                     setF(p => {
                       const total = km + (Number(p.distanciaVuelta) || 0)
@@ -753,6 +758,7 @@ function RutaForm({ initial, vehiculos, geoCtx, onSubmit, loading, onClose, prec
               <div className="p-4">
                 <RouteMapPicker
                   geoCtx={geoCtx}
+                  hideName
                   onConfirm={(km, nombre) => {
                     setF(p => {
                       const total = (Number(p.distanciaIda) || 0) + km
